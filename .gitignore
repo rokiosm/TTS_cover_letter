@@ -39,3 +39,10 @@ data/
 outputs/
 *.tmp
 *.bak
+linkareer_1to740.csv
+
+# Embedding experiment artifacts
+Embedding/*.sqlite
+Embedding/*.sqlite-*
+Embedding/question_contexts.csv
+Embedding/experiment_results.csv

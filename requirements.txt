@@ -15,5 +15,6 @@ langchain-openai
 chromadb
 tqdm
 python-dotenv
+psycopg[binary]
 jupyter
 ipykernel

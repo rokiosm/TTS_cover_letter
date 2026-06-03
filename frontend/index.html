@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cover Letter RAG</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    :root {
+      --pico-font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+      --pico-border-radius: 0.5rem;
+      --pico-primary: #2563eb;
+      --pico-primary-hover: #1d4ed8;
+    }
+
+    body { background: #fff; }
+    main { padding-block: 2rem 3rem; }
+    .topbar { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 1.5rem; }
+    .layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 1rem; align-items: start; }
+    article { border: 1px solid #e5e7eb; box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06); }
+    .muted { color: #667085; }
+    .status { white-space: nowrap; color: #0f766e; font-weight: 700; }
+    .field-row { display: grid; grid-template-columns: 1fr 6rem; gap: 0.75rem; }
+    .result-card { padding: 1rem 0; border-bottom: 1px solid #eef2f7; }
+    .result-card:last-child { border-bottom: 0; }
+    .result-head { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+    .score { color: #2563eb; font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
+    .empty-state { min-height: 12rem; display: grid; place-items: center; text-align: center; color: #667085; }
+    pre { min-height: 12rem; max-height: 26rem; overflow: auto; white-space: pre-wrap; background: #f8fafc; border: 1px solid #e5e7eb; color: #1f2937; }
+
+    @media (max-width: 900px) {
+      .topbar, .result-head { display: block; }
+      .layout, .field-row { grid-template-columns: 1fr; }
+      .status { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="topbar">
+      <div>
+        <h1>Cover Letter RAG</h1>
+        <p class="muted">지원 조건에 맞는 합격 자기소개서 사례와 생성 프롬프트를 정리합니다.</p>
+      </div>
+      <span class="status">RAG Server Ready</span>
+    </header>
+
+    <div class="layout">
+      <article>
+        <h2>검색 조건</h2>
+        <p class="muted">직무와 지원자 정보를 채우면 질문 단위 유사 사례와 공통 질문 Top 5를 가져옵니다.</p>
+
+        <label for="large">직무 대분류</label>
+        <select id="large"></select>
+
+        <label for="medium">직무 중분류</label>
+        <select id="medium"></select>
+
+        <label for="job">지원 직무</label>
+        <input id="job" placeholder="예: 브랜드 마케팅">
+
+        <label for="profile">지원자 정보</label>
+        <textarea id="profile" placeholder="경험, 스펙, 프로젝트를 짧게 적어주세요."></textarea>
+
+        <button id="run" type="button">Top 5 생성하기</button>
+      </article>
+
+      <article>
+        <h2>공통 질문 Top 5</h2>
+        <p id="summary" class="muted">조건을 입력하고 검색하세요.</p>
+        <div id="questions">
+          <div class="empty-state">공통 질문이 여기에 표시됩니다.</div>
+        </div>
+
+        <h2>질문별 참고 Context</h2>
+        <div id="results">
+          <div class="empty-state">검색 결과가 여기에 표시됩니다.</div>
+        </div>
+
+        <h3>생성 프롬프트</h3>
+        <pre id="prompt">검색 후 프롬프트가 생성됩니다.</pre>
+      </article>
+    </div>
+  </main>
+
+  <script>
+    let categories = [];
+    const large = document.getElementById("large");
+    const medium = document.getElementById("medium");
+
+    function unique(values) {
+      return [...new Set(values.filter(Boolean))].sort();
+    }
+
+    function option(value, label) {
+      const item = document.createElement("option");
+      item.value = value;
+      item.textContent = label || value || "전체";
+      return item;
+    }
+
+    function fillLarge() {
+      large.innerHTML = "";
+      large.appendChild(option("", "전체"));
+      unique(categories.map(c => c.large)).forEach(v => large.appendChild(option(v)));
+      fillMedium();
+    }
+
+    function fillMedium() {
+      medium.innerHTML = "";
+      medium.appendChild(option("", "전체"));
+      unique(categories.filter(c => !large.value || c.large === large.value).map(c => c.medium)).forEach(v => medium.appendChild(option(v)));
+    }
+
+    async function loadCategories() {
+      const response = await fetch("/api/categories");
+      categories = await response.json();
+      fillLarge();
+    }
+
+    function renderResults(results) {
+      if (!results.length) {
+        return `<div class="empty-state">조건에 맞는 결과가 없습니다.</div>`;
+      }
+      return results.map((item, index) => `
+        <section class="result-card">
+          <div class="result-head">
+            <strong>${index + 1}. ${item.company} / ${item.job}</strong>
+            <span class="score">score ${item.score}</span>
+          </div>
+          <small class="muted">${item.question_label || "질문"} · ${item.question_text || ""}</small>
+          <small class="muted">${item.category.large || "전체"} &gt; ${item.category.medium || "전체"}</small>
+          <p>${item.preview}</p>
+        </section>
+      `).join("");
+    }
+
+    function renderQuestions(questions) {
+      if (!questions.length) {
+        return `<div class="empty-state">공통 질문이 없습니다.</div>`;
+      }
+      return questions.slice(0, 5).map((item, index) => `
+        <section class="result-card">
+          <strong>${index + 1}. ${item.question}</strong>
+          <small class="muted">${item.count}회 · 예시 회사 ${item.example_companies.join(", ") || "없음"}</small>
+        </section>
+      `).join("");
+    }
+
+    async function runRag() {
+      const button = document.getElementById("run");
+      button.disabled = true;
+      button.textContent = "검색 중...";
+      try {
+        const response = await fetch("/api/rag", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            large: large.value,
+            medium: medium.value,
+            target_job: document.getElementById("job").value,
+            user_profile: document.getElementById("profile").value,
+            top_k: 5
+          })
+        });
+        const data = await response.json();
+        document.getElementById("summary").textContent = `필터 ${data.filtered_count.toLocaleString()}건 중 ${data.retrieved_count}건 검색`;
+        document.getElementById("questions").innerHTML = renderQuestions(data.questions);
+        document.getElementById("results").innerHTML = renderResults(data.results);
+        document.getElementById("prompt").textContent = data.prompt;
+      } catch (error) {
+        document.getElementById("summary").textContent = "검색 중 오류가 발생했습니다.";
+        document.getElementById("questions").innerHTML = `<div class="empty-state">서버 상태를 확인한 뒤 다시 시도하세요.</div>`;
+        document.getElementById("results").innerHTML = `<div class="empty-state">서버 상태를 확인한 뒤 다시 시도하세요.</div>`;
+        document.getElementById("prompt").textContent = "";
+      } finally {
+        button.disabled = false;
+        button.textContent = "Top 5 생성하기";
+      }
+    }
+
+    large.addEventListener("change", fillMedium);
+    document.getElementById("run").addEventListener("click", runRag);
+    loadCategories();
+  </script>
+</body>
+</html>
