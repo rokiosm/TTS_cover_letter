@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="200" viewBox="0 0 1100 200">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="24" y="36" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="24" font-weight="700" fill="#222">분류확신도</text>
+<text x="24" y="58" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#666">총 14,774건, 상위 3개 표시</text>
+<text x="24" y="88" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">중</text>
+<rect x="260" y="74" width="760" height="18" rx="3" fill="#4f7cac"/>
+<text x="1028" y="88" font-family="Arial, sans-serif" font-size="12" fill="#333">9,676 (65.5%)</text>
+<text x="24" y="118" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">상</text>
+<rect x="260" y="104" width="308" height="18" rx="3" fill="#4f7cac"/>
+<text x="576" y="118" font-family="Arial, sans-serif" font-size="12" fill="#333">3,933 (26.6%)</text>
+<text x="24" y="148" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">하</text>
+<rect x="260" y="134" width="91" height="18" rx="3" fill="#4f7cac"/>
+<text x="359" y="148" font-family="Arial, sans-serif" font-size="12" fill="#333">1,165 (7.9%)</text>
+</svg>

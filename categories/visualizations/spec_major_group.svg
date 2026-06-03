@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="470" viewBox="0 0 1100 470">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="24" y="36" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="24" font-weight="700" fill="#222">학과_계열</text>
+<text x="24" y="58" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#666">총 14,774건, 상위 12개 표시</text>
+<text x="24" y="88" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">공학</text>
+<rect x="260" y="74" width="760" height="18" rx="3" fill="#4f7cac"/>
+<text x="1028" y="88" font-family="Arial, sans-serif" font-size="12" fill="#333">5,327 (36.1%)</text>
+<text x="24" y="118" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">기타</text>
+<rect x="260" y="104" width="483" height="18" rx="3" fill="#4f7cac"/>
+<text x="751" y="118" font-family="Arial, sans-serif" font-size="12" fill="#333">3,386 (22.9%)</text>
+<text x="24" y="148" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">경영경제</text>
+<rect x="260" y="134" width="395" height="18" rx="3" fill="#4f7cac"/>
+<text x="663" y="148" font-family="Arial, sans-serif" font-size="12" fill="#333">2,771 (18.8%)</text>
+<text x="24" y="178" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">사회과학</text>
+<rect x="260" y="164" width="109" height="18" rx="3" fill="#4f7cac"/>
+<text x="377" y="178" font-family="Arial, sans-serif" font-size="12" fill="#333">771 (5.2%)</text>
+<text x="24" y="208" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">인문어문</text>
+<rect x="260" y="194" width="97" height="18" rx="3" fill="#4f7cac"/>
+<text x="365" y="208" font-family="Arial, sans-serif" font-size="12" fill="#333">683 (4.6%)</text>
+<text x="24" y="238" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">자연과학</text>
+<rect x="260" y="224" width="70" height="18" rx="3" fill="#4f7cac"/>
+<text x="338" y="238" font-family="Arial, sans-serif" font-size="12" fill="#333">495 (3.4%)</text>
+<text x="24" y="268" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">(빈값)</text>
+<rect x="260" y="254" width="68" height="18" rx="3" fill="#4f7cac"/>
+<text x="336" y="268" font-family="Arial, sans-serif" font-size="12" fill="#333">479 (3.2%)</text>
+<text x="24" y="298" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">IT컴퓨터</text>
+<rect x="260" y="284" width="66" height="18" rx="3" fill="#4f7cac"/>
+<text x="334" y="298" font-family="Arial, sans-serif" font-size="12" fill="#333">469 (3.2%)</text>
+<text x="24" y="328" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">예체능디자인</text>
+<rect x="260" y="314" width="19" height="18" rx="3" fill="#4f7cac"/>
+<text x="287" y="328" font-family="Arial, sans-serif" font-size="12" fill="#333">138 (0.9%)</text>
+<text x="24" y="358" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">법행정</text>
+<rect x="260" y="344" width="18" height="18" rx="3" fill="#4f7cac"/>
+<text x="286" y="358" font-family="Arial, sans-serif" font-size="12" fill="#333">132 (0.9%)</text>
+<text x="24" y="388" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">의약보건간호</text>
+<rect x="260" y="374" width="10" height="18" rx="3" fill="#4f7cac"/>
+<text x="278" y="388" font-family="Arial, sans-serif" font-size="12" fill="#333">75 (0.5%)</text>
+<text x="24" y="418" font-family="Apple SD Gothic Neo, Arial, sans-serif" font-size="13" fill="#333">교육</text>
+<rect x="260" y="404" width="6" height="18" rx="3" fill="#4f7cac"/>
+<text x="274" y="418" font-family="Arial, sans-serif" font-size="12" fill="#333">48 (0.3%)</text>
+</svg>
