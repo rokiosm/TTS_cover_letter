@@ -73,6 +73,7 @@
         </div>
 
         <h2>질문별 참고 Context</h2>
+        <p class="muted">score는 BM25 관련도 점수라 고정 만점이 없고, 같은 검색 결과 안에서 높을수록 더 유사합니다.</p>
         <div id="results">
           <div class="empty-state">검색 결과가 여기에 표시됩니다.</div>
         </div>
@@ -149,6 +150,14 @@
 
     async function runRag() {
       const button = document.getElementById("run");
+      const profile = document.getElementById("profile").value.trim();
+      if (!profile) {
+        document.getElementById("summary").textContent = "지원자 정보를 입력하면 공통 질문 Top 5가 생성됩니다.";
+        document.getElementById("questions").innerHTML = `<div class="empty-state">지원자 정보를 먼저 입력해주세요.</div>`;
+        document.getElementById("results").innerHTML = `<div class="empty-state">지원자 정보 입력 후 검색 결과가 표시됩니다.</div>`;
+        document.getElementById("prompt").textContent = "지원자 정보를 입력하면 생성 프롬프트가 만들어집니다.";
+        return;
+      }
       button.disabled = true;
       button.textContent = "검색 중...";
       try {
@@ -159,12 +168,19 @@
             large: large.value,
             medium: medium.value,
             target_job: document.getElementById("job").value,
-            user_profile: document.getElementById("profile").value,
+            user_profile: profile,
             top_k: 5
           })
         });
         const data = await response.json();
-        document.getElementById("summary").textContent = `필터 ${data.filtered_count.toLocaleString()}건 중 ${data.retrieved_count}건 검색`;
+        if (data.requires_profile) {
+          document.getElementById("summary").textContent = "지원자 정보를 입력하면 공통 질문 Top 5가 생성됩니다.";
+          document.getElementById("questions").innerHTML = `<div class="empty-state">지원자 정보를 먼저 입력해주세요.</div>`;
+          document.getElementById("results").innerHTML = `<div class="empty-state">지원자 정보 입력 후 검색 결과가 표시됩니다.</div>`;
+          document.getElementById("prompt").textContent = data.prompt;
+          return;
+        }
+        document.getElementById("summary").textContent = `필터 ${data.filtered_count.toLocaleString()}건 중 ${data.retrieved_count}건 검색 · ${data.score_note}`;
         document.getElementById("questions").innerHTML = renderQuestions(data.questions);
         document.getElementById("results").innerHTML = renderResults(data.results);
         document.getElementById("prompt").textContent = data.prompt;

@@ -266,6 +266,16 @@ def run_rag(
 ):
     documents = documents or load_documents()
     filtered = filter_documents(documents, large, medium, small, job_keyword)
+    if not normalize_space(user_profile):
+        return {
+            "filtered_count": len(filtered),
+            "retrieved_count": 0,
+            "results": [],
+            "questions": [],
+            "prompt": "지원자 정보를 입력하면 공통 질문 Top 5와 생성 프롬프트가 만들어집니다.",
+            "requires_profile": True,
+        }
+
     search_query = " ".join([target_job, user_profile, job_keyword, query]).strip()
     if not search_query:
         search_query = "지원동기 직무역량 성과 경험 입사 후 포부"
@@ -279,6 +289,7 @@ def run_rag(
         "results": results,
         "questions": questions,
         "prompt": prompt,
+        "requires_profile": False,
     }
 
 
@@ -295,6 +306,8 @@ def serialize_rag_output(output):
     return {
         "filtered_count": output["filtered_count"],
         "retrieved_count": output["retrieved_count"],
+        "requires_profile": output.get("requires_profile", False),
+        "score_note": "BM25 기반 관련도 점수라 고정 만점은 없고, 같은 검색 결과 안에서 높을수록 더 유사합니다.",
         "results": [
             {
                 "score": round(score, 4),
