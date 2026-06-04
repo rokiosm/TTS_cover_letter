@@ -2,7 +2,7 @@
 
 이 디렉토리는 `linkareer_1to740.csv`를 바로 RAG에 넣기 전에, 자기소개서 `내용`을 질문 단위로 나누고 문맥 길이별 검색 품질을 비교하기 위한 실험 공간입니다.
 
-## 1. 질문 단위 CSV 생성
+## 1. 질문 단위 데이터셋 생성
 
 ```bash
 .venv/bin/python -m Embedding.question_dataset
@@ -11,6 +11,7 @@
 생성 파일:
 
 - `Embedding/question_contexts.csv`
+- `Embedding/question_answer_groups.json`
 
 주요 컬럼:
 
@@ -18,6 +19,14 @@
 - `answer`: 해당 질문의 답변 본문
 - `question_label`: 지원동기, 직무역량, 경험/성과 등 규칙 기반 라벨
 - `context_300`, `context_600`, `context_1000`: 검색 실험용 문맥 길이
+
+JSON은 질문 하나에 여러 답변을 묶기 위한 계층형 파일입니다.
+
+```text
+large > medium > normalized_question > answers[]
+```
+
+이 구조가 RAG에는 더 자연스럽습니다. 같은 질문이라도 직무 중분류가 다르면 답변 맥락이 달라지므로, `large`, `medium`, `question_key`를 함께 묶습니다. CSV는 실험과 테이블 로딩용으로 유지하고, 실제 질문-답변 관계를 볼 때는 JSON을 우선 사용합니다.
 
 ## 2. 문맥 길이 실험
 
