@@ -1,203 +1,162 @@
 <!doctype html>
-<html lang="ko" data-theme="light">
+<html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cover Letter RAG</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <style>
-    :root {
-      --pico-font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
-      --pico-border-radius: 0.5rem;
-      --pico-primary: #2563eb;
-      --pico-primary-hover: #1d4ed8;
-    }
-
-    body { background: #fff; }
-    main { padding-block: 2rem 3rem; }
-    .topbar { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 1.5rem; }
-    .layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 1rem; align-items: start; }
-    article { border: 1px solid #e5e7eb; box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06); }
-    .muted { color: #667085; }
-    .status { white-space: nowrap; color: #0f766e; font-weight: 700; }
-    .field-row { display: grid; grid-template-columns: 1fr 6rem; gap: 0.75rem; }
-    .result-card { padding: 1rem 0; border-bottom: 1px solid #eef2f7; }
-    .result-card:last-child { border-bottom: 0; }
-    .result-head { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
-    .score { color: #2563eb; font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
-    .empty-state { min-height: 12rem; display: grid; place-items: center; text-align: center; color: #667085; }
-    pre { min-height: 12rem; max-height: 26rem; overflow: auto; white-space: pre-wrap; background: #f8fafc; border: 1px solid #e5e7eb; color: #1f2937; }
-
-    @media (max-width: 900px) {
-      .topbar, .result-head { display: block; }
-      .layout, .field-row { grid-template-columns: 1fr; }
-      .status { white-space: normal; }
-    }
-  </style>
+  <title>Cover Letter Interview Prep</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/app.js" defer></script>
 </head>
-<body>
-  <main class="container">
-    <header class="topbar">
-      <div>
-        <h1>Cover Letter RAG</h1>
-        <p class="muted">지원 조건에 맞는 합격 자기소개서 사례와 생성 프롬프트를 정리합니다.</p>
-      </div>
-      <span class="status">RAG Server Ready</span>
-    </header>
+<body data-page="home">
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="home">TTS Cover Letter</a>
+    <nav class="site-nav" aria-label="primary">
+      <a href="/pages/cover-letter.html">자기소개서 생성</a>
+      <a href="/pages/interview.html">면접 보기</a>
+      <a href="/pages/history.html">히스토리</a>
+    </nav>
+  </header>
 
-    <div class="layout">
-      <article>
-        <h2>검색 조건</h2>
-        <p class="muted">직무와 지원자 정보를 채우면 질문 단위 유사 사례와 공통 질문 Top 5를 가져옵니다.</p>
+  <main class="vault-layout">
+    <aside class="spec-panel" aria-label="지원자 스펙 입력">
+      <p class="eyebrow">Profile / Spec</p>
+      <h1>지원 방향과 스펙을 먼저 정리합니다.</h1>
+      <p class="lead">직무와 경험을 입력하면 공통 문항, 자소서 초안, 면접 질문까지 한 번에 준비됩니다.</p>
 
+      <form id="prep-form" class="spec-form">
         <label for="large">직무 대분류</label>
-        <select id="large"></select>
+        <select id="large" name="large"></select>
 
         <label for="medium">직무 중분류</label>
-        <select id="medium"></select>
+        <select id="medium" name="medium"></select>
 
-        <label for="job">지원 직무</label>
-        <input id="job" placeholder="예: 브랜드 마케팅">
+        <label for="company">지원 회사</label>
+        <input id="company" name="company" placeholder="예: 삼성전자">
 
-        <label for="profile">지원자 정보</label>
-        <textarea id="profile" placeholder="경험, 스펙, 프로젝트를 짧게 적어주세요."></textarea>
+        <label for="job">갖고 싶은 직무/직업</label>
+        <input id="job" name="job" placeholder="예: 백엔드 개발자">
 
-        <button id="run" type="button">Top 5 생성하기</button>
-      </article>
+        <label for="major">학과/전공</label>
+        <input id="major" name="major" placeholder="예: 컴퓨터공학과, 소프트웨어학과">
 
-      <article>
-        <h2>공통 질문 Top 5</h2>
-        <p id="summary" class="muted">조건을 입력하고 검색하세요.</p>
-        <div id="questions">
-          <div class="empty-state">공통 질문이 여기에 표시됩니다.</div>
-        </div>
+        <label for="certificates">자격증</label>
+        <textarea id="certificates" name="certificates" rows="3" placeholder="예: 정보처리기사 필기 합격, SQLD, ADsP"></textarea>
 
-        <h2>질문별 참고 Context</h2>
-        <p class="muted">score는 BM25 관련도 점수라 고정 만점이 없고, 같은 검색 결과 안에서 높을수록 더 유사합니다.</p>
-        <div id="results">
-          <div class="empty-state">검색 결과가 여기에 표시됩니다.</div>
-        </div>
+        <label for="team-projects">팀프로젝트 작업</label>
+        <textarea id="team-projects" name="team-projects" rows="5" placeholder="예: 4인 팀 프로젝트에서 RAG 검색 기능 담당, 역할 분담과 발표 자료 조율, 정확도 개선"></textarea>
 
-        <h3>생성 프롬프트</h3>
-        <pre id="prompt">검색 후 프롬프트가 생성됩니다.</pre>
-      </article>
-    </div>
-  </main>
+        <label for="other-specs">기타 스펙</label>
+        <textarea id="other-specs" name="other-specs" rows="4" placeholder="예: AI 관련 수업, CNN 사진 분류 실습, Python, FastAPI, 수상, 인턴"></textarea>
 
-  <script>
-    let categories = [];
-    const large = document.getElementById("large");
-    const medium = document.getElementById("medium");
-
-    function unique(values) {
-      return [...new Set(values.filter(Boolean))].sort();
-    }
-
-    function option(value, label) {
-      const item = document.createElement("option");
-      item.value = value;
-      item.textContent = label || value || "전체";
-      return item;
-    }
-
-    function fillLarge() {
-      large.innerHTML = "";
-      large.appendChild(option("", "전체"));
-      unique(categories.map(c => c.large)).forEach(v => large.appendChild(option(v)));
-      fillMedium();
-    }
-
-    function fillMedium() {
-      medium.innerHTML = "";
-      medium.appendChild(option("", "전체"));
-      unique(categories.filter(c => !large.value || c.large === large.value).map(c => c.medium)).forEach(v => medium.appendChild(option(v)));
-    }
-
-    async function loadCategories() {
-      const response = await fetch("/api/categories");
-      categories = await response.json();
-      fillLarge();
-    }
-
-    function renderResults(results) {
-      if (!results.length) {
-        return `<div class="empty-state">조건에 맞는 결과가 없습니다.</div>`;
-      }
-      return results.map((item, index) => `
-        <section class="result-card">
-          <div class="result-head">
-            <strong>${index + 1}. ${item.company} / ${item.job}</strong>
-            <span class="score">score ${item.score}</span>
+        <div class="inline-fields">
+          <div>
+            <label for="age">나이 선택</label>
+            <select id="age" name="age">
+              <option value="">선택 안 함</option>
+              <option value="20대 초반">20대 초반</option>
+              <option value="20대 후반">20대 후반</option>
+              <option value="30대 이상">30대 이상</option>
+            </select>
           </div>
-          <small class="muted">${item.question_label || "질문"} · ${item.question_text || ""}</small>
-          <small class="muted">${item.category.large || "전체"} &gt; ${item.category.medium || "전체"}</small>
-          <p>${item.preview}</p>
-        </section>
-      `).join("");
-    }
+          <div>
+            <label for="gender">성별 선택</label>
+            <select id="gender" name="gender">
+              <option value="">선택 안 함</option>
+              <option value="남성">남성</option>
+              <option value="여성">여성</option>
+              <option value="기타/응답 안 함">기타/응답 안 함</option>
+            </select>
+          </div>
+        </div>
 
-    function renderQuestions(questions) {
-      if (!questions.length) {
-        return `<div class="empty-state">공통 질문이 없습니다.</div>`;
-      }
-      return questions.slice(0, 5).map((item, index) => `
-        <section class="result-card">
-          <strong>${index + 1}. ${item.question}</strong>
-          <small class="muted">${item.count}회 · 예시 회사 ${item.example_companies.join(", ") || "없음"}</small>
-        </section>
-      `).join("");
-    }
+        <label for="profile">추가로 넣고 싶은 경험</label>
+        <textarea id="profile" name="profile" rows="4" placeholder="위 항목에 들어가지 않는 내용을 자유롭게 적어주세요."></textarea>
 
-    async function runRag() {
-      const button = document.getElementById("run");
-      const profile = document.getElementById("profile").value.trim();
-      if (!profile) {
-        document.getElementById("summary").textContent = "지원자 정보를 입력하면 공통 질문 Top 5가 생성됩니다.";
-        document.getElementById("questions").innerHTML = `<div class="empty-state">지원자 정보를 먼저 입력해주세요.</div>`;
-        document.getElementById("results").innerHTML = `<div class="empty-state">지원자 정보 입력 후 검색 결과가 표시됩니다.</div>`;
-        document.getElementById("prompt").textContent = "지원자 정보를 입력하면 생성 프롬프트가 만들어집니다.";
-        return;
-      }
-      button.disabled = true;
-      button.textContent = "검색 중...";
-      try {
-        const response = await fetch("/api/rag", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            large: large.value,
-            medium: medium.value,
-            target_job: document.getElementById("job").value,
-            user_profile: profile,
-            top_k: 5
-          })
-        });
-        const data = await response.json();
-        if (data.requires_profile) {
-          document.getElementById("summary").textContent = "지원자 정보를 입력하면 공통 질문 Top 5가 생성됩니다.";
-          document.getElementById("questions").innerHTML = `<div class="empty-state">지원자 정보를 먼저 입력해주세요.</div>`;
-          document.getElementById("results").innerHTML = `<div class="empty-state">지원자 정보 입력 후 검색 결과가 표시됩니다.</div>`;
-          document.getElementById("prompt").textContent = data.prompt;
-          return;
-        }
-        document.getElementById("summary").textContent = `필터 ${data.filtered_count.toLocaleString()}건 중 ${data.retrieved_count}건 검색 · ${data.score_note}`;
-        document.getElementById("questions").innerHTML = renderQuestions(data.questions);
-        document.getElementById("results").innerHTML = renderResults(data.results);
-        document.getElementById("prompt").textContent = data.prompt;
-      } catch (error) {
-        document.getElementById("summary").textContent = "검색 중 오류가 발생했습니다.";
-        document.getElementById("questions").innerHTML = `<div class="empty-state">서버 상태를 확인한 뒤 다시 시도하세요.</div>`;
-        document.getElementById("results").innerHTML = `<div class="empty-state">서버 상태를 확인한 뒤 다시 시도하세요.</div>`;
-        document.getElementById("prompt").textContent = "";
-      } finally {
-        button.disabled = false;
-        button.textContent = "Top 5 생성하기";
-      }
-    }
+        <button id="run" class="primary-action" type="submit">준비 결과 생성</button>
+        <a class="ghost-button form-link" href="/pages/interview.html">면접보기</a>
+      </form>
 
-    large.addEventListener("change", fillMedium);
-    document.getElementById("run").addEventListener("click", runRag);
-    loadCategories();
-  </script>
+      <div class="spec-list" aria-label="입력 가이드">
+        <span>학과</span>
+        <span>자격증</span>
+        <span>팀프로젝트</span>
+        <span>기타 스펙</span>
+        <span>나이/성별 선택</span>
+        <span>면접 API seed</span>
+      </div>
+    </aside>
+
+    <section class="work-area" aria-label="준비 결과">
+      <section class="showcase">
+        <div>
+          <p class="eyebrow">AI Prep Workspace</p>
+          <h2>자기소개서와 면접을 한 흐름으로 이어줍니다.</h2>
+        </div>
+        <p id="summary" class="summary">직무와 스펙을 입력하면 결과가 표시됩니다.</p>
+      </section>
+
+      <section class="result-grid">
+        <article class="result-card score-card">
+          <div class="score-ring" aria-label="종합 점수 미리보기">
+            <strong id="score-value">--</strong>
+            <span>/100</span>
+          </div>
+          <div>
+            <p class="card-label">자소서 분석 결과</p>
+            <h3 id="score-title">준비 전</h3>
+            <p id="score-note">입력 후 문항 적합성, 직무 연결성, 키워드 매칭을 확인합니다.</p>
+          </div>
+        </article>
+
+        <article class="result-card">
+          <p class="card-label">공통 질문</p>
+          <div id="questions" class="stack-list">
+            <div class="empty-state">직무별 공통 질문이 여기에 표시됩니다.</div>
+          </div>
+        </article>
+
+        <article class="result-card">
+          <p class="card-label">주요 키워드 매칭</p>
+          <div id="keywords" class="keyword-cloud">
+            <span>직무 역량</span>
+            <span>협업</span>
+            <span>문제 해결</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="route-sections" aria-label="다음 작업">
+        <a class="route-section" href="/pages/cover-letter.html">
+          <span class="route-index">01</span>
+          <div>
+            <h2>자기소개서 생성</h2>
+            <p>생성된 초안을 문항별로 보고 수정 포인트를 확인합니다.</p>
+          </div>
+          <span class="route-arrow">Go</span>
+        </a>
+
+        <a class="route-section" href="/pages/interview.html">
+          <span class="route-index">02</span>
+          <div>
+            <h2>면접 보기</h2>
+            <p>자소서 기반 면접 질문과 답변 기준을 확인합니다.</p>
+          </div>
+          <span class="route-arrow">Go</span>
+        </a>
+      </section>
+
+      <details class="debug-panel">
+        <summary>참고 context와 API seed 보기</summary>
+        <h3>참고 context</h3>
+        <div id="results" class="stack-list">
+          <div class="empty-state">참고 context가 여기에 표시됩니다.</div>
+        </div>
+        <h3>면접 API seed</h3>
+        <pre id="api-seed">면접 API에 넘길 JSON seed가 여기에 표시됩니다.</pre>
+        <h3>LLM 생성 프롬프트</h3>
+        <pre id="prompt">검색 후 프롬프트가 생성됩니다.</pre>
+      </details>
+    </section>
+  </main>
 </body>
 </html>

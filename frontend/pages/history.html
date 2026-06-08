@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>히스토리 | TTS Cover Letter</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/app.js" defer></script>
+</head>
+<body data-page="history">
+  <header class="site-header">
+    <a class="brand" href="/">TTS Cover Letter</a>
+    <nav class="site-nav" aria-label="primary">
+      <a href="/pages/cover-letter.html">자기소개서 생성</a>
+      <a href="/pages/interview.html">면접 보기</a>
+      <a href="/pages/history.html" aria-current="page">히스토리</a>
+    </nav>
+  </header>
+
+  <main class="page-main">
+    <section class="page-hero">
+      <div>
+        <p class="eyebrow">History</p>
+        <h1>면접 연습 기록을 DB에서 불러옵니다.</h1>
+        <p id="history-summary" class="lead">저장된 연습 기록과 샘플 데이터를 확인하는 중입니다.</p>
+      </div>
+      <div class="page-actions">
+        <a class="ghost-button" href="/pages/interview.html">면접 보기</a>
+        <button id="refresh-history" class="ghost-button" type="button">새로고침</button>
+      </div>
+    </section>
+
+    <section class="history-workspace">
+      <article class="page-panel">
+        <p class="card-label">Sample List</p>
+        <div id="history-list" class="history-list">
+          <div class="empty-state">히스토리를 불러오는 중입니다.</div>
+        </div>
+        <div id="history-pagination" class="pagination-row" aria-label="히스토리 페이지"></div>
+      </article>
+
+      <aside class="page-panel history-detail" id="history-detail">
+        <p class="card-label">Sample Detail</p>
+        <div class="empty-state">왼쪽 샘플을 클릭하면 자소서와 관련 면접 질문을 확인할 수 있습니다.</div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

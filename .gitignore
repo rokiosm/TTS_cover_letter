@@ -46,4 +46,11 @@ Embedding/*.sqlite
 Embedding/*.sqlite-*
 Embedding/question_contexts.csv
 Embedding/question_answer_groups.json
+Embedding/interview_question_contexts.csv
+Embedding/interview_question_groups.json
 Embedding/experiment_results.csv
+Embedding/persona_context_results.csv
+
+# Local app databases
+DB/*.sqlite3
+DB/*.sqlite3-*

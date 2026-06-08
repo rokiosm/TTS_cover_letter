@@ -5,11 +5,23 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from RAG.draft_generator import (
+    build_reference_guides,
+    build_cover_letter_drafts,
+    build_interview_api_seed,
+    build_interview_plan,
+    common_questions_for_job,
+    normalize_structured_profile,
+    profile_has_content,
+    structured_profile_to_text,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / "linkareer_1to740.csv"
 JOB_CATEGORY_PATH = ROOT / "categories" / "직무_카테고리.csv"
 QUESTION_CONTEXT_PATH = ROOT / "Embedding" / "question_contexts.csv"
+RETRIEVAL_CONTEXT_FIELD = "context_300"
 
 QUESTION_PATTERNS = [
     re.compile(r"(?m)^\s*(?:\[\s*)?(\d+(?:[-.]\d+)?)\s*[\].)-]?\s*([^\n]{8,160})"),
@@ -17,8 +29,8 @@ QUESTION_PATTERNS = [
 ]
 
 CANONICAL_QUESTIONS = [
-    ("지원동기", "회사와 직무에 지원한 동기를 작성해주세요.", ["지원동기", "지원 동기", "지원하게", "지원한 이유"]),
-    ("직무역량", "지원 직무에 필요한 역량과 이를 쌓아온 경험을 작성해주세요.", ["직무역량", "직무 역량", "역량", "강점", "전문성"]),
+    ("지원동기", "회사와 직무에 지원한 동기를 작성해주세요.", ["지원동기", "지원 동기", "지원한 동기", "지원하게", "지원한 이유"]),
+    ("직무역량", "지원 직무에 필요한 역량과 이를 쌓아온 경험을 작성해주세요.", ["직무역량", "직무 역량", "역량", "강점", "전문성", "경쟁력", "차별화"]),
     ("경험/성과", "가장 의미 있었던 경험과 성과를 구체적으로 작성해주세요.", ["성과", "경험", "프로젝트", "수상", "공모전"]),
     ("도전/문제해결", "어려움을 해결했거나 도전했던 경험을 작성해주세요.", ["도전", "문제", "해결", "갈등", "실패", "극복"]),
     ("협업/소통", "협업 또는 소통을 통해 목표를 달성한 경험을 작성해주세요.", ["협업", "소통", "팀", "커뮤니케이션", "조직"]),
@@ -38,8 +50,27 @@ def tokenize(text):
     return [token.lower() for token in TOKEN_PATTERN.findall(text or "") if len(token) > 1]
 
 
+def tokenize_with_bigrams(text):
+    tokens = tokenize(text)
+    return tokens + [f"{tokens[index]}_{tokens[index + 1]}" for index in range(len(tokens) - 1)]
+
+
 def normalize_space(text):
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def has_final_consonant(text):
+    text = normalize_space(text)
+    if not text:
+        return False
+    char = text[-1]
+    if "가" <= char <= "힣":
+        return (ord(char) - ord("가")) % 28 != 0
+    return char.isdigit() and char not in "2459"
+
+
+def josa(text, consonant_form, vowel_form):
+    return consonant_form if has_final_consonant(text) else vowel_form
 
 
 def load_documents():
@@ -86,17 +117,8 @@ def load_documents():
 def load_question_documents():
     documents = []
     for row in read_csv(QUESTION_CONTEXT_PATH):
-        text = " ".join(
-            [
-                row.get("company", ""),
-                row.get("job", ""),
-                row.get("large", ""),
-                row.get("medium", ""),
-                row.get("question_label", ""),
-                row.get("question_text", ""),
-                row.get("answer", ""),
-            ]
-        )
+        retrieval_context = row.get(RETRIEVAL_CONTEXT_FIELD) or row.get("answer", "")
+        text = " ".join([row.get("job", ""), row.get("large", ""), row.get("medium", ""), retrieval_context])
         documents.append(
             {
                 "question_id": row.get("question_id", ""),
@@ -112,7 +134,8 @@ def load_question_documents():
                 "large": row.get("large", ""),
                 "medium": row.get("medium", ""),
                 "small": row.get("small", ""),
-                "tokens": tokenize(text),
+                "retrieval_context": retrieval_context,
+                "tokens": tokenize_with_bigrams(text),
             }
         )
     return documents
@@ -262,32 +285,51 @@ def run_rag(
     target_company="",
     target_job="",
     user_profile="",
+    structured_profile=None,
     documents=None,
 ):
     documents = documents or load_documents()
     filtered = filter_documents(documents, large, medium, small, job_keyword)
-    if not normalize_space(user_profile):
+    structured_profile = normalize_structured_profile(structured_profile, user_profile)
+    profile_text = structured_profile_to_text(structured_profile)
+    if not profile_has_content(structured_profile):
         return {
             "filtered_count": len(filtered),
             "retrieved_count": 0,
             "results": [],
             "questions": [],
-            "prompt": "지원자 정보를 입력하면 공통 질문 Top 5와 생성 프롬프트가 만들어집니다.",
+            "prompt": "지원자 정보를 입력하면 직무별 공통 질문, 자기소개서 초안, 면접 준비 질문이 만들어집니다.",
+            "drafts": [],
+            "interview_plan": {},
+            "interview_api_seed": {},
             "requires_profile": True,
         }
 
-    search_query = " ".join([target_job, user_profile, job_keyword, query]).strip()
+    search_query = " ".join([target_job, profile_text, job_keyword, query]).strip()
     if not search_query:
         search_query = "지원동기 직무역량 성과 경험 입사 후 포부"
 
     results = retrieve(filtered, search_query, top_k)
-    questions = common_questions(results)
-    prompt = build_generation_prompt(results, questions, user_profile, target_company, target_job)
+    questions = common_questions_for_job(target_job, results, structured_profile)
+    reference_guides = build_reference_guides(results)
+    drafts = build_cover_letter_drafts(questions, structured_profile, target_company, target_job, reference_guides)
+    interview_plan = build_interview_plan(drafts, profile_text, target_job)
+    prompt = build_generation_prompt(results, questions, profile_text, target_company, target_job)
     return {
         "filtered_count": len(filtered),
         "retrieved_count": len(results),
         "results": results,
         "questions": questions,
+        "drafts": drafts,
+        "interview_plan": interview_plan,
+        "interview_api_seed": build_interview_api_seed(
+            drafts,
+            interview_plan,
+            target_company,
+            target_job,
+            profile_text,
+            structured_profile,
+        ),
         "prompt": prompt,
         "requires_profile": False,
     }
@@ -333,6 +375,9 @@ def serialize_rag_output(output):
             {"question": question, "count": count, "example_companies": companies}
             for question, count, companies in output["questions"]
         ],
+        "drafts": output.get("drafts", []),
+        "interview_plan": output.get("interview_plan", {}),
+        "interview_api_seed": output.get("interview_api_seed", {}),
         "prompt": output["prompt"],
     }
 

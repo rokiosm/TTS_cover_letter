@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>자기소개서 생성 | TTS Cover Letter</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/app.js" defer></script>
+</head>
+<body data-page="cover-letter">
+  <header class="site-header">
+    <a class="brand" href="/">TTS Cover Letter</a>
+    <nav class="site-nav" aria-label="primary">
+      <a href="/pages/cover-letter.html" aria-current="page">자기소개서 생성</a>
+      <a href="/pages/interview.html">면접 보기</a>
+    </nav>
+  </header>
+
+  <main class="page-main">
+    <section class="page-hero">
+      <div>
+        <p class="eyebrow">Cover Letter</p>
+        <h1>생성된 자기소개서 초안을 문항별로 정리합니다.</h1>
+        <p id="draft-meta" class="lead">저장된 준비 결과를 불러오는 중입니다.</p>
+      </div>
+      <div class="page-actions">
+        <a class="ghost-button" href="/">스펙 수정</a>
+        <a class="ghost-button" href="/pages/interview.html">면접 보기</a>
+      </div>
+    </section>
+
+    <section class="draft-grid">
+      <article class="page-panel">
+        <p class="card-label">Generated Drafts</p>
+        <div id="drafts"></div>
+      </article>
+
+      <aside class="page-panel">
+        <p class="card-label">수정 기준</p>
+        <div class="stack-list">
+          <div class="list-item">
+            <strong>역할</strong>
+            <span class="meta">팀 성과보다 본인이 직접 한 행동을 먼저 씁니다.</span>
+          </div>
+          <div class="list-item">
+            <strong>결과</strong>
+            <span class="meta">숫자, 비교 기준, 개선 전후를 넣으면 신뢰도가 높아집니다.</span>
+          </div>
+          <div class="list-item">
+            <strong>직무 연결</strong>
+            <span class="meta">마지막 문장은 지원 직무에서 재현할 수 있는 역량으로 닫습니다.</span>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

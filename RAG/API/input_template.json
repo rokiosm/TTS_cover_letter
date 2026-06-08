@@ -1,0 +1,27 @@
+{
+  "large": "",
+  "medium": "",
+  "small": "",
+  "job_keyword": "",
+  "query": "",
+  "top_k": 8,
+  "target_company": "지원 회사",
+  "target_job": "AI 개발자",
+  "user_profile": "",
+  "structured_profile": {
+    "major": "컴퓨터공학과",
+    "certificates": "정보처리기사 필기 합격",
+    "team_projects": "4인 팀 프로젝트에서 RAG 기반 검색 기능을 담당했고 팀원과 역할을 분담해 발표 자료를 조율함",
+    "other_specs": "AI 관련 수업 수강, CNN 기법으로 사진 분류 수행, Python FastAPI 사용",
+    "age": "",
+    "gender": ""
+  },
+  "generation": {
+    "use_openai": true,
+    "model": "gpt-5.2",
+    "output_style": "자기소개서 문체",
+    "paragraphs": 3,
+    "min_chars": 1000,
+    "max_chars": 1500
+  }
+}

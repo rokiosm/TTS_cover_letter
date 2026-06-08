@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>면접 보기 | TTS Cover Letter</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/app.js" defer></script>
+</head>
+<body data-page="interview">
+  <header class="site-header">
+    <a class="brand" href="/">TTS Cover Letter</a>
+    <nav class="site-nav" aria-label="primary">
+      <a href="/pages/cover-letter.html">자기소개서 생성</a>
+      <a href="/pages/interview.html" aria-current="page">면접 보기</a>
+      <a href="/pages/history.html">히스토리</a>
+    </nav>
+  </header>
+
+  <main class="page-main">
+    <section class="page-hero">
+      <div>
+        <p class="eyebrow">Interview</p>
+        <h1>면접 질문을 고르고 직접 말해봅니다.</h1>
+        <p id="answer-rule" class="lead">저장된 준비 결과를 불러오는 중입니다.</p>
+      </div>
+      <div class="page-actions">
+        <a class="ghost-button" href="/">스펙 수정</a>
+        <a class="ghost-button" href="/pages/cover-letter.html">자소서 보기</a>
+      </div>
+    </section>
+
+    <section class="interview-grid">
+      <article class="page-panel">
+        <div class="panel-heading">
+          <p class="card-label">Interview Questions</p>
+          <button id="refresh-interview" class="small-button" type="button">질문 불러오기</button>
+        </div>
+        <div class="tab-row" role="tablist" aria-label="면접 질문 유형">
+          <button class="tab-button is-active" type="button" data-interview-tab="basic">기본 질문</button>
+          <button class="tab-button" type="button" data-interview-tab="personalized">사용자 맞춤</button>
+          <button class="tab-button" type="button" data-interview-tab="dataset">데이터셋 추천</button>
+        </div>
+        <div id="interview-status" class="status-line">면접 데이터를 확인하는 중입니다.</div>
+        <div id="interview" class="stack-list"></div>
+      </article>
+
+      <aside class="page-panel">
+        <p class="card-label">Focus Areas</p>
+        <div id="focus-areas" class="keyword-cloud"></div>
+        <div class="stack-list">
+          <div class="list-item">
+            <strong>60초 답변</strong>
+            <span class="meta">상황, 역할, 행동, 결과, 직무 연결 순서로 말합니다.</span>
+          </div>
+          <div class="list-item">
+            <strong>꼬리 질문</strong>
+            <span class="meta">성과 지표와 본인 판단 근거를 추가로 준비합니다.</span>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="practice-grid" aria-label="마이크 면접 연습">
+      <article class="page-panel">
+        <p class="card-label">Mic Practice</p>
+        <h2 id="practice-question">질문을 선택하면 연습을 시작할 수 있습니다.</h2>
+        <div class="recorder-controls">
+          <button id="record-toggle" class="primary-action" type="button">마이크 시작</button>
+          <button id="clear-answer" class="ghost-button" type="button">답변 지우기</button>
+        </div>
+        <div id="record-status" class="status-line">브라우저에서 마이크 권한을 허용하면 녹음과 음성 인식을 시작합니다.</div>
+        <label class="answer-label" for="spoken-answer">인식된 답변</label>
+        <textarea id="spoken-answer" rows="8" placeholder="마이크로 말하거나 직접 입력해도 됩니다."></textarea>
+        <button id="evaluate-answer" class="primary-action" type="button">답변 점수 보기</button>
+        <button id="save-history" class="ghost-button full-width-button" type="button">히스토리에 저장</button>
+      </article>
+
+      <aside class="page-panel">
+        <p class="card-label">Score</p>
+        <div class="score-card compact-score">
+          <div class="score-ring" aria-label="면접 답변 점수">
+            <strong id="interview-score">--</strong>
+            <span>/100</span>
+          </div>
+          <div>
+            <h3 id="interview-score-title">대기 중</h3>
+            <p id="interview-score-note">질문을 선택하고 답변을 입력하면 평가가 표시됩니다.</p>
+          </div>
+        </div>
+        <div id="rubric" class="stack-list"></div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

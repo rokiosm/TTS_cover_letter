@@ -46,7 +46,26 @@ large > medium > normalized_question > answers[]
 
 점수는 query 벡터와 context 벡터의 cosine similarity입니다. 현재 구현은 외부 모델 없이 빠르게 비교하기 위한 hashed sparse vector 방식입니다. 실제 의미 임베딩 모델을 붙이면 같은 CSV를 입력으로 sentence-transformers, OpenAI embeddings, FAISS 실험으로 확장할 수 있습니다.
 
-## 3. 임베딩 DB 생성
+## 3. 페르소나 기반 context 길이 실험
+
+```bash
+.venv/bin/python -m Embedding.persona_context_experiment --max-docs 12000
+```
+
+생성 파일:
+
+- `Embedding/persona_context_results.csv`
+
+실험 방식:
+
+- 임의 지원자 페르소나를 `학과`, `자격증`, `팀프로젝트 작업`, `기타 스펙`으로 나누어 검색 query를 만듭니다.
+- `나이`, `성별`은 면접 데이터셋 비교 때 선택 필터로 남기되, 자기소개서 본문 생성 근거로는 쓰지 않습니다.
+- 기본 범위는 `context_300`부터 `context_1000`까지 100자 단위입니다.
+- `composite_score`는 `medium_hit_at_5`, `label_hit_at_5`, `label_mrr_at_20`을 함께 본 추천 점수입니다.
+
+현재 관찰 결과에서는 `context_300 + token_bigram`이 가장 좋았습니다. 직무 대분류는 모든 설정에서 대체로 잘 맞았지만, 공통 질문 라벨까지 함께 맞추는 기준에서는 300자가 가장 안정적이었습니다.
+
+## 4. 임베딩 DB 생성
 
 ```bash
 .venv/bin/python -m Embedding.vector_store
