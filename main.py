@@ -1,6 +1,7 @@
 import argparse
 import json
 import mimetypes
+import os
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -78,6 +79,42 @@ def content_type_for(path):
     if guessed:
         return f"{guessed}; charset=utf-8" if guessed.startswith("text/") else guessed
     return "application/octet-stream"
+
+
+def default_generation_options(payload):
+    generation_options = payload.get("generation", {})
+    if generation_options:
+        return generation_options
+    if not os.getenv("GEMINI_API_KEY"):
+        return {}
+    return {
+        "provider": "gemini",
+        "use_gemini": True,
+        "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        "temperature": float(os.getenv("GEMINI_TEMPERATURE", "0.2")),
+        "max_tokens": int(os.getenv("GEMINI_MAX_TOKENS", "8192")),
+        "output_style": "자기소개서 문체",
+        "paragraphs": 3,
+        "min_chars": 1000,
+        "max_chars": 1500,
+        "timeout": 120,
+        "retries": 2,
+    }
+
+
+def redact_generation_options(generation_options):
+    sanitized = dict(generation_options or {})
+    if sanitized.get("api_key"):
+        sanitized["api_key"] = ""
+        sanitized["api_key_provided"] = True
+    return sanitized
+
+
+def redact_payload(payload):
+    sanitized = json.loads(json.dumps(payload or {}, ensure_ascii=False))
+    if isinstance(sanitized.get("generation"), dict):
+        sanitized["generation"] = redact_generation_options(sanitized["generation"])
+    return sanitized
 
 
 def send_response(handler, status, content_type, body):
@@ -168,6 +205,7 @@ class RagHandler(BaseHTTPRequestHandler):
             return
 
         rag = get_rag_module()
+        generation_options = default_generation_options(payload)
         output = rag.run_rag(
             large=payload.get("large", ""),
             medium=payload.get("medium", ""),
@@ -181,7 +219,14 @@ class RagHandler(BaseHTTPRequestHandler):
             structured_profile=payload.get("structured_profile", {}),
             documents=get_documents(),
         )
-        json_response(self, 200, rag.serialize_rag_output(output))
+        serialized = rag.serialize_rag_output(output)
+        serialized["generation_request"] = redact_generation_options(generation_options)
+        serialized["api_input"] = redact_payload(payload)
+        if generation_options.get("provider") == "gemini" or generation_options.get("use_gemini"):
+            from RAG.API.gemini_generator import regenerate_with_gemini
+
+            serialized = regenerate_with_gemini(serialized, generation_options)
+        json_response(self, 200, serialized)
         log_event(f"POST {path} completed in {time.perf_counter() - started_at:.3f}s")
 
     def log_message(self, format, *args):

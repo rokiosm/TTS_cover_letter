@@ -9,7 +9,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from RAG import cover_letter_rag
+from RAG.API.gemini_generator import gemini_enabled, regenerate_with_gemini
 from RAG.API.openai_generator import openai_enabled, regenerate_with_openai
+from RAG.API.vllm_generator import regenerate_with_vllm, vllm_enabled
 
 
 DEFAULT_INPUT = Path(__file__).resolve().parent / "input_template.json"
@@ -43,7 +45,11 @@ def run_from_payload(payload):
     serialized = cover_letter_rag.serialize_rag_output(output)
     serialized["generation_request"] = generation_options
     serialized["api_input"] = payload
-    if openai_enabled(generation_options):
+    if gemini_enabled(generation_options):
+        serialized = regenerate_with_gemini(serialized, generation_options)
+    elif vllm_enabled(generation_options):
+        serialized = regenerate_with_vllm(serialized, generation_options)
+    elif openai_enabled(generation_options):
         serialized = regenerate_with_openai(serialized, generation_options)
     return serialized
 

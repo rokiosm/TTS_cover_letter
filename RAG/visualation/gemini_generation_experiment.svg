@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="292" viewBox="0 0 1100 292">
+<rect width="100%" height="100%" fill="#f7f4ee"/>
+<text x="48" y="54" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#1f2933">Gemini Generation Experiment</text>
+<text x="48" y="84" font-family="Arial, sans-serif" font-size="14" fill="#52606d">Composite score: length range, paragraph count, question overlap, evidence usage, structure keywords. Failed API calls are shown in red.</text>
+<line x1="260" y1="96" x2="910" y2="96" stroke="#c7c1b6"/>
+<text x="48" y="138" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#1f2933">gemini-2.5-flash / T=0.1 / max=8192</text>
+<text x="48" y="162" font-family="Arial, sans-serif" font-size="13" fill="#2f7d6d">generated 1/1 · errors 0</text>
+<rect x="260" y="120" width="650" height="30" rx="4" fill="#e4ded4"/>
+<rect x="260" y="120" width="352" height="30" rx="4" fill="#2f7d6d"/>
+<text x="928" y="141" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2933">0.543</text>
+</svg>

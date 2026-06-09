@@ -212,9 +212,10 @@ def select_evidence_items(structured_profile, label, limit=4):
 
 def question_label(question):
     priority_rules = [
-        ("협업/소통", ["협업", "팀", "소통", "커뮤니케이션", "조직"]),
         ("지원동기", ["지원동기", "지원 동기", "지원한 동기", "지원하게", "지원한 이유"]),
         ("입사 후 포부", ["입사 후", "포부", "목표", "기여", "계획"]),
+        ("경험/성과", ["성과", "결과물", "수치", "프로젝트 성과", "맡은 역할과 결과"]),
+        ("협업/소통", ["협업", "팀", "소통", "커뮤니케이션", "조직", "역할 분담", "의견", "조율"]),
         ("도전/문제해결", ["도전", "문제", "해결", "갈등", "실패", "극복"]),
         ("직무역량", ["직무", "역량", "강점", "전문성", "경쟁력", "차별화"]),
         ("경험/성과", ["성과", "경험", "프로젝트", "수상", "공모전"]),
@@ -384,6 +385,33 @@ def field_summary_sentence(field_summary):
     return f"제 경험은 다음과 같이 정리할 수 있습니다. {field_summary}."
 
 
+def job_domain_terms(target_job):
+    lowered = (target_job or "").lower()
+    if any(keyword in lowered for keyword in ["마케팅", "브랜드", "콘텐츠", "광고", "영업", "crm"]):
+        return {
+            "problem": "고객 반응과 시장 흐름",
+            "tool": "캠페인과 콘텐츠 전략",
+            "environment": "브랜드와 채널 운영 기준",
+            "future": "고객 반응을 실행 전략으로 바꾸는 실무자",
+            "result": "타깃 이해와 성과 지표",
+        }
+    if any(keyword in lowered for keyword in ["개발", "백엔드", "프론트", "ai", "데이터", "엔지니어", "서버", "api"]):
+        return {
+            "problem": "기술 문제와 서비스 흐름",
+            "tool": "기술 선택과 구현 경험",
+            "environment": "개발 환경과 업무 기준",
+            "future": "기술을 문제 해결로 연결하는 실무자",
+            "result": "구현 결과와 검증 기준",
+        }
+    return {
+        "problem": "업무 상황과 사용자의 요구",
+        "tool": "경험에서 얻은 실행 방식",
+        "environment": "업무 흐름과 조직 기준",
+        "future": "경험을 실제 성과로 연결하는 실무자",
+        "result": "실행 과정과 결과",
+    }
+
+
 def trim_to_char_range(text, min_chars=1000, max_chars=1500):
     text = normalize_space(text).replace(". ", ".\n")
     if len(text) <= max_chars:
@@ -451,6 +479,7 @@ def build_missing_evidence_draft(question, label, target_job):
 def join_three_paragraphs(paragraphs, label, target_job, target_company):
     job_name = target_job or "지원 직무"
     company_name = target_company or "지원 회사"
+    terms = job_domain_terms(job_name)
     additions = {
         "지원동기": (
             2,
@@ -466,7 +495,7 @@ def join_three_paragraphs(paragraphs, label, target_job, target_company):
         ),
         "입사 후 포부": (
             2,
-            f" 장기적으로는 {job_name}{josa(job_name, '로서', '로서')} 기술을 적용하는 사람을 넘어 문제를 정의하고 해결 방향을 제안하는 실무자가 되고 싶습니다. {company_name}의 업무 안에서도 결과를 만든 뒤 근거와 개선점을 남기는 방식으로 팀의 다음 실행에 기여하겠습니다.",
+            f" 장기적으로는 {job_name}{josa(job_name, '로서', '로서')} {terms['future']}가 되고 싶습니다. {company_name}의 업무 안에서도 결과를 만든 뒤 근거와 개선점을 남기는 방식으로 팀의 다음 실행에 기여하겠습니다.",
         ),
         "경험/성과": (
             2,
@@ -497,6 +526,7 @@ def join_three_paragraphs(paragraphs, label, target_job, target_company):
 def build_answer_paragraph(question, label, evidence_items, signals, target_company, target_job, reference_examples=None):
     job_name = target_job or "지원 직무"
     company_name = target_company or "지원 회사"
+    terms = job_domain_terms(job_name)
     evidence = build_evidence_sentence(evidence_items)
     signal_text = ", ".join(signals[:3])
     field_lines = []
@@ -505,15 +535,15 @@ def build_answer_paragraph(question, label, evidence_items, signals, target_comp
     field_summary = " / ".join(field_lines) if field_lines else evidence
     if label == "지원동기":
         paragraphs = [
-            f"{company_name}에 지원한 이유는 {job_name}라는 직무가 제가 쌓아 온 기술 학습과 실행 경험을 실제 문제 해결로 연결할 수 있는 자리라고 판단했기 때문입니다. 저는 관심의 출발점보다 그 관심을 어떻게 실행으로 옮겼는지를 중요하게 생각합니다.",
-            f"{field_summary_sentence(field_summary)} 이를 바탕으로 {job_name}{josa(job_name, '에', '에')} 필요한 문제 정의와 실행 방식을 익혀 왔습니다. 특히 관심 있는 기술을 단순히 수강하거나 사용해 보는 데서 멈추지 않고, 필요한 자료를 찾고 적용 가능한 방법을 비교하며 결과를 확인하는 과정을 반복했습니다.",
-            f"이 경험을 통해 제가 {job_name}{josa(job_name, '에서', '에서')} 기여할 수 있는 지점은 새로운 기술을 빠르게 익히는 것보다, 그 기술을 왜 써야 하는지 이해하고 결과로 연결하는 태도라고 생각합니다. {company_name}에서도 업무의 배경을 먼저 파악하고, 제가 가진 {signal_text} 역량을 바탕으로 신뢰할 수 있는 결과를 만들겠습니다.",
+            f"{company_name}에 지원한 이유는 {job_name}{josa(job_name, '이라는', '라는')} 직무가 제가 쌓아 온 경험을 {terms['problem']} 해결로 연결할 수 있는 자리라고 판단했기 때문입니다. 저는 관심의 출발점보다 그 관심을 어떻게 실행으로 옮겼는지를 중요하게 생각합니다.",
+            f"{field_summary_sentence(field_summary)} 이를 바탕으로 {job_name}{josa(job_name, '에', '에')} 필요한 문제 정의와 실행 방식을 익혀 왔습니다. 특히 {terms['tool']}{josa(terms['tool'], '을', '를')} 단순히 알고 있는 데서 멈추지 않고, 필요한 자료를 찾고 적용 가능한 방법을 비교하며 결과를 확인하는 과정을 반복했습니다.",
+            f"이 경험을 통해 제가 {job_name}{josa(job_name, '에서', '에서')} 기여할 수 있는 지점은 경험을 말로 설명하는 데서 끝내지 않고 {terms['result']}{josa(terms['result'], '으로', '로')} 연결하는 태도라고 생각합니다. {company_name}에서도 업무의 배경을 먼저 파악하고, 제가 가진 {signal_text} 역량을 바탕으로 신뢰할 수 있는 결과를 만들겠습니다.",
         ]
     elif label == "직무역량":
         paragraphs = [
-            f"{job_name} 수행에 필요한 핵심 역량은 문제를 구조화하는 힘, 필요한 기술을 선택하는 판단력, 그리고 결과를 끝까지 검증하는 실행력이라고 생각합니다. 그래서 저는 보유 스펙을 나열하기보다 실제로 어떻게 적용했는지를 중심으로 제 역량을 설명하고자 합니다.",
-            f"{field_summary_sentence(field_summary)} 이 과정에서는 기술명을 사용하는 데서 끝나지 않고, 어떤 문제를 해결하기 위해 그 방법이 필요한지 먼저 정리했습니다. 결과가 기대와 다를 때도 원인을 한 번에 단정하지 않고 입력, 처리 과정, 결과 확인 단계로 나누어 살폈습니다.",
-            f"이러한 경험은 {job_name}{josa(job_name, '에서', '에서')} 요구되는 실무 태도와 연결됩니다. 실무에서는 정답이 정해진 과제보다 조건과 제약을 해석해야 하는 상황이 많기 때문입니다. 저는 앞으로도 학습한 내용을 실제 업무에 적용하고, 동료가 이해할 수 있는 방식으로 정리하며, 결과를 기준으로 개선하는 {job_name}가 되겠습니다.",
+            f"{job_name} 수행에 필요한 핵심 역량은 문제를 구조화하는 힘, 필요한 방법을 선택하는 판단력, 그리고 결과를 끝까지 확인하는 실행력이라고 생각합니다. 그래서 저는 보유 스펙을 나열하기보다 실제로 어떻게 적용했는지를 중심으로 제 역량을 설명하고자 합니다.",
+            f"{field_summary_sentence(field_summary)} 이 과정에서는 활동명이나 도구명을 사용하는 데서 끝나지 않고, 어떤 문제를 해결하기 위해 그 방법이 필요한지 먼저 정리했습니다. 결과가 기대와 다를 때도 원인을 한 번에 단정하지 않고 상황, 실행 과정, 결과 확인 단계로 나누어 살폈습니다.",
+            f"이러한 경험은 {job_name}{josa(job_name, '에서', '에서')} 요구되는 실무 태도와 연결됩니다. 실무에서는 정답이 정해진 과제보다 조건과 제약을 해석해야 하는 상황이 많기 때문입니다. 저는 앞으로도 학습한 내용을 실제 업무에 적용하고, 동료가 이해할 수 있는 방식으로 정리하며, {terms['result']}{josa(terms['result'], '을', '를')} 기준으로 개선하는 {job_name}가 되겠습니다.",
         ]
     elif label == "경험/성과":
         paragraphs = [
@@ -530,8 +560,8 @@ def build_answer_paragraph(question, label, evidence_items, signals, target_comp
     else:
         paragraphs = [
             f"입사 후에는 {job_name}의 업무 흐름을 빠르게 익히고, 제가 쌓아 온 경험을 실제 성과로 연결하고 싶습니다. 막연한 성장 의지보다 초기 실행과 장기 기여 방향을 나누어 설명하는 것이 더 설득력 있다고 생각합니다.",
-            f"{field_summary_sentence(field_summary)} 이 과정에서 배운 것은 새로운 업무를 맡았을 때 먼저 목적을 이해하고, 필요한 자료와 기술을 연결한 뒤 결과를 확인하는 방식입니다. 초기에는 {company_name}의 개발 환경과 업무 기준을 정확히 익히고, 주어진 과제를 안정적으로 수행하는 데 집중하겠습니다.",
-            f"이후에는 반복되는 문제나 개선 가능한 지점을 기록하고, 동료와 공유할 수 있는 형태로 정리해 팀의 생산성에 기여하고 싶습니다. 장기적으로는 {job_name}{josa(job_name, '로서', '로서')} 기술을 사용하는 사람에 머무르지 않고, 문제를 정의하고 해결 방향을 제안할 수 있는 실무자가 되겠습니다.",
+            f"{field_summary_sentence(field_summary)} 이 과정에서 배운 것은 새로운 업무를 맡았을 때 먼저 목적을 이해하고, 필요한 자료와 실행 방법을 연결한 뒤 결과를 확인하는 방식입니다. 초기에는 {company_name}의 {terms['environment']}{josa(terms['environment'], '을', '를')} 정확히 익히고, 주어진 과제를 안정적으로 수행하는 데 집중하겠습니다.",
+            f"이후에는 반복되는 문제나 개선 가능한 지점을 기록하고, 동료와 공유할 수 있는 형태로 정리해 팀의 생산성에 기여하고 싶습니다. 장기적으로는 {job_name}{josa(job_name, '로서', '로서')} {terms['future']}가 되겠습니다.",
         ]
     return join_three_paragraphs(paragraphs, label, target_job, target_company)
 

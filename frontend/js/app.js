@@ -57,6 +57,34 @@ function loadState() {
   }
 }
 
+function generationPayload() {
+  const apiKey = $("gemini-api-key")?.value.trim() || "";
+  if (!apiKey) return null;
+  return {
+    provider: "gemini",
+    use_gemini: true,
+    api_key: apiKey,
+    model: "gemini-2.5-flash",
+    output_style: "자기소개서 문체",
+    paragraphs: 3,
+    min_chars: 1000,
+    max_chars: 1500,
+    temperature: Number($("gemini-temperature")?.value || 0.2),
+    max_tokens: Number($("gemini-max-tokens")?.value || 4096),
+    timeout: 120,
+    retries: 2,
+  };
+}
+
+function withoutApiKey(payload) {
+  const copy = JSON.parse(JSON.stringify(payload || {}));
+  if (copy.generation?.api_key) {
+    copy.generation.api_key = "";
+    copy.generation.api_key_provided = true;
+  }
+  return copy;
+}
+
 function fillLarge() {
   const large = $("large");
   if (!large) return;
@@ -108,7 +136,7 @@ function renderResults(results = []) {
   return results.map((item, index) => `
     <div class="list-item">
       <strong>${index + 1}. ${escapeHtml(item.company)} / ${escapeHtml(item.job)}</strong>
-      <span class="meta">score ${escapeHtml(item.score)} · ${escapeHtml(item.question_label || "질문")}</span>
+      <span class="meta">score ${escapeHtml(item.score)} · ${escapeHtml(item.source_type || "question_context")} · ${escapeHtml(item.question_label || "질문")}</span>
       <p>${escapeHtml(item.preview)}</p>
     </div>
   `).join("");
@@ -121,7 +149,8 @@ function renderDrafts(drafts = []) {
   return drafts.map((item) => `
     <article class="draft-block">
       <strong>${escapeHtml(item.index)}. ${escapeHtml(item.question)}</strong>
-      <span class="meta">${escapeHtml(item.label)} · 참고 ${escapeHtml(item.source_count)}회 · ${escapeHtml(item.draft_chars || 0)}자 · ${item.evidence_status === "matched" ? "문항 적합 스펙 사용" : "추가 경험 필요"}</span>
+      <span class="meta">${escapeHtml(item.label)} · 참고 ${escapeHtml(item.source_count)}회 · ${escapeHtml(item.draft_chars || 0)}자 · ${item.gemini_generated ? "Gemini 생성" : "기존 방식 생성"} · ${item.evidence_status === "matched" ? "문항 적합 스펙 사용" : "추가 경험 필요"}</span>
+      ${item.gemini_error ? `<p class="error-line">${escapeHtml(item.gemini_error)}</p>` : ""}
       ${(item.evidence_items || []).length ? `<div class="evidence-list">${item.evidence_items.map((evidence) => {
         const label = typeof evidence === "object" ? evidence.field_label : "스펙";
         const text = typeof evidence === "object" ? evidence.text : evidence;
@@ -481,7 +510,14 @@ async function loadHistory() {
 
 function hydrateHome(data) {
   if (!data.output) return;
-  $("summary").textContent = `직무 후보 ${data.output.filtered_count.toLocaleString()}건을 참고해 공통 질문 ${data.output.questions.length}개와 면접 질문을 만들었습니다.`;
+  const gemini = data.output.gemini;
+  let geminiText = "";
+  if (gemini?.fallback_to_local) {
+    geminiText = ` ${gemini.fallback_reason || "Gemini 대신 기존 방식으로 생성했습니다."}`;
+  } else if (gemini?.enabled) {
+    geminiText = ` Gemini ${gemini.success_count || 0}/${gemini.attempted_count || (data.output.drafts || []).length}개 재생성.`;
+  }
+  $("summary").textContent = `직무 후보 ${data.output.filtered_count.toLocaleString()}건을 참고해 공통 질문 ${data.output.questions.length}개와 면접 질문을 만들었습니다.${geminiText}`;
   $("score-value").textContent = "87";
   $("score-title").textContent = "상위 15%";
   $("score-note").textContent = "입력한 스펙을 기준으로 자소서와 면접 준비 흐름을 구성했습니다.";
@@ -511,6 +547,8 @@ async function runPrep(event) {
     },
     top_k: 8,
   };
+  const generation = generationPayload();
+  if (generation) payload.generation = generation;
 
   const hasProfile = payload.user_profile || Object.entries(payload.structured_profile)
     .some(([key, value]) => !["age", "gender"].includes(key) && value);
@@ -528,7 +566,7 @@ async function runPrep(event) {
       body: JSON.stringify(payload),
     });
     const output = await response.json();
-    const data = { input: payload, output };
+    const data = { input: withoutApiKey(payload), output };
     saveState(data);
     hydrateHome(data);
   } catch {

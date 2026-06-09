@@ -75,7 +75,7 @@ def josa(text, consonant_form, vowel_form):
 
 def load_documents():
     if QUESTION_CONTEXT_PATH.exists():
-        return load_question_documents()
+        return load_question_documents() + load_history_documents()
 
     rows = read_csv(DATA_PATH)
     categories = read_csv(JOB_CATEGORY_PATH)
@@ -111,7 +111,7 @@ def load_documents():
                 "tokens": tokenize(text),
             }
         )
-    return documents
+    return documents + load_history_documents()
 
 
 def load_question_documents():
@@ -136,6 +136,64 @@ def load_question_documents():
                 "small": row.get("small", ""),
                 "retrieval_context": retrieval_context,
                 "tokens": tokenize_with_bigrams(text),
+            }
+        )
+    return documents
+
+
+def load_history_documents(limit=200):
+    try:
+        from DB import history_store
+    except Exception:
+        return []
+
+    documents = []
+    try:
+        rows = history_store.list_history(limit=limit)
+    except Exception:
+        return []
+
+    for row in rows:
+        cover_letter = row.get("cover_letter", "")
+        related_questions = row.get("related_questions", [])
+        question_text = row.get("question", "")
+        spec_text = " ".join(
+            [
+                row.get("major", ""),
+                row.get("certificates", ""),
+                row.get("team_projects", ""),
+                row.get("other_specs", ""),
+            ]
+        )
+        retrieval_context = " ".join(
+            [
+                row.get("target_job", ""),
+                spec_text,
+                question_text,
+                " ".join(related_questions if isinstance(related_questions, list) else []),
+                cover_letter,
+            ]
+        )
+        if not normalize_space(cover_letter):
+            continue
+        documents.append(
+            {
+                "source_type": "history_db",
+                "question_id": f"history-{row.get('id', '')}",
+                "source_row": int(row.get("id") or 0),
+                "period": row.get("created_at", ""),
+                "company": "history",
+                "job": row.get("target_job", ""),
+                "spec": spec_text,
+                "content": cover_letter,
+                "question_text": question_text,
+                "question_label": infer_question_label(question_text),
+                "link": "",
+                "large": row.get("occupation_label", ""),
+                "medium": row.get("target_job", ""),
+                "small": "",
+                "retrieval_context": retrieval_context,
+                "tokens": tokenize_with_bigrams(retrieval_context),
             }
         )
     return documents
@@ -201,6 +259,22 @@ def extract_questions(content):
             if 8 <= len(text) <= 60 and not re.search(r"①|②|③|자격증|온라인 몰|페이스북|구글", text):
                 questions.append(text)
     return questions
+
+
+def infer_question_label(question):
+    priority_rules = [
+        ("협업/소통", ["협업", "팀", "소통", "커뮤니케이션", "조직"]),
+        ("지원동기", ["지원동기", "지원 동기", "지원한 동기", "지원하게", "지원한 이유"]),
+        ("입사 후 포부", ["입사 후", "포부", "목표", "기여", "계획"]),
+        ("도전/문제해결", ["도전", "문제", "해결", "갈등", "실패", "극복"]),
+        ("직무역량", ["직무", "역량", "강점", "전문성", "경쟁력", "차별화"]),
+        ("경험/성과", ["성과", "경험", "프로젝트", "수상", "공모전"]),
+        ("성장과정", ["성장", "가치관", "본인", "자신"]),
+    ]
+    for label, keywords in priority_rules:
+        if any(keyword in question for keyword in keywords):
+            return label
+    return "공통 문항"
 
 
 def common_questions(results, limit=5):
@@ -358,6 +432,7 @@ def serialize_rag_output(output):
                 "company": document["company"],
                 "job": document["job"],
                 "question_id": document.get("question_id", ""),
+                "source_type": document.get("source_type", "question_context"),
                 "question_label": document.get("question_label", ""),
                 "question_text": document.get("question_text", ""),
                 "spec": document["spec"],

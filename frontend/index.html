@@ -72,6 +72,22 @@
         <label for="profile">추가로 넣고 싶은 경험</label>
         <textarea id="profile" name="profile" rows="4" placeholder="위 항목에 들어가지 않는 내용을 자유롭게 적어주세요."></textarea>
 
+        <details class="llm-settings">
+          <summary>LLM API 키 입력</summary>
+          <label for="gemini-api-key">Gemini API 키</label>
+          <input id="gemini-api-key" name="gemini-api-key" type="password" autocomplete="off" placeholder="입력한 키는 브라우저에 저장하지 않습니다.">
+          <div class="inline-fields">
+            <div>
+              <label for="gemini-temperature">temperature</label>
+              <input id="gemini-temperature" name="gemini-temperature" type="number" min="0" max="2" step="0.1" value="0.2">
+            </div>
+            <div>
+              <label for="gemini-max-tokens">max tokens</label>
+              <input id="gemini-max-tokens" name="gemini-max-tokens" type="number" min="512" max="8192" step="512" value="4096">
+            </div>
+          </div>
+        </details>
+
         <button id="run" class="primary-action" type="submit">준비 결과 생성</button>
         <a class="ghost-button form-link" href="/pages/interview.html">면접보기</a>
       </form>

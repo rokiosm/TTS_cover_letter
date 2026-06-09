@@ -17,11 +17,14 @@
     "gender": ""
   },
   "generation": {
-    "use_openai": true,
-    "model": "gpt-5.2",
+    "provider": "gemini",
+    "use_gemini": true,
+    "model": "gemini-2.5-flash",
     "output_style": "자기소개서 문체",
     "paragraphs": 3,
     "min_chars": 1000,
-    "max_chars": 1500
+    "max_chars": 1500,
+    "temperature": 0.2,
+    "max_tokens": 4096
   }
 }

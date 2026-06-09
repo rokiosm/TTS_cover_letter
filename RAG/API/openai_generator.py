@@ -82,7 +82,7 @@ def parse_json_output(text):
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"OpenAI 응답이 JSON 형식이 아닙니다: {exc}") from exc
+        raise RuntimeError(f"LLM 응답이 JSON 형식이 아닙니다: {exc}") from exc
 
 
 def regenerate_with_openai(serialized, generation_options):

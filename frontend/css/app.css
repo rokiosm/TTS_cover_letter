@@ -177,6 +177,31 @@ h3 {
   gap: 10px;
 }
 
+.llm-settings {
+  margin-top: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: #fbfcff;
+}
+
+.llm-settings summary {
+  cursor: pointer;
+  color: #384052;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.llm-settings[open] {
+  display: grid;
+  gap: 10px;
+}
+
+.error-line {
+  color: #b42318;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .spec-form input:focus,
 .spec-form select:focus,
 .spec-form textarea:focus {
