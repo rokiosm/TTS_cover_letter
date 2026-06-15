@@ -13,7 +13,7 @@
     <nav class="site-nav" aria-label="primary">
       <a href="/pages/cover-letter.html">자기소개서 생성</a>
       <a href="/pages/interview.html">면접 보기</a>
-      <a href="/pages/history.html">히스토리</a>
+      <a href="/pages/history.html">자소서 불러오기</a>
     </nav>
   </header>
 
@@ -35,6 +35,9 @@
 
         <label for="job">갖고 싶은 직무/직업</label>
         <input id="job" name="job" placeholder="예: 백엔드 개발자">
+
+        <label for="company-questions">기업/이력서 문항</label>
+        <textarea id="company-questions" name="company-questions" rows="5" placeholder="예: 당사에 지원한 동기와 입사 후 목표는 무엇인가요?&#10;지원 분야에 대한 직무 전문성을 가장 잘 보여주는 경험을 작성해주세요."></textarea>
 
         <label for="major">학과/전공</label>
         <input id="major" name="major" placeholder="예: 컴퓨터공학과, 소프트웨어학과">
@@ -74,8 +77,10 @@
 
         <details class="llm-settings">
           <summary>LLM API 키 입력</summary>
+          <label for="openai-api-key">OpenAI API 키</label>
+          <input id="openai-api-key" name="openai-api-key" type="password" autocomplete="off" placeholder=".env 키가 있으면 입력하지 않아도 됩니다.">
           <label for="gemini-api-key">Gemini API 키</label>
-          <input id="gemini-api-key" name="gemini-api-key" type="password" autocomplete="off" placeholder="입력한 키는 브라우저에 저장하지 않습니다.">
+          <input id="gemini-api-key" name="gemini-api-key" type="password" autocomplete="off" placeholder="OpenAI 실패 시 대체로 사용합니다.">
           <div class="inline-fields">
             <div>
               <label for="gemini-temperature">temperature</label>

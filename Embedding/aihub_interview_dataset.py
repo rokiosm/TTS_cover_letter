@@ -8,10 +8,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LOCAL_LABEL_DIR = ROOT / "DB" / "aihub_interview_labels"
 DEFAULT_LABEL_DIR = Path(
     os.environ.get(
         "AIHUB_INTERVIEW_LABEL_DIR",
-        "/Users/krok/Downloads/129.채용면접 인터뷰 데이터/01-1.정식개방데이터/Training/02.라벨링데이터",
+        LOCAL_LABEL_DIR,
     )
 )
 OUTPUT_CSV = ROOT / "Embedding" / "interview_question_contexts.csv"

@@ -2,6 +2,7 @@ const stateKey = "ttsCoverLetterPrep";
 let categories = [];
 let interviewState = {
   activeTab: "basic",
+  loading: false,
   questions: {
     basic: [],
     personalized: [],
@@ -58,13 +59,17 @@ function loadState() {
 }
 
 function generationPayload() {
-  const apiKey = $("gemini-api-key")?.value.trim() || "";
-  if (!apiKey) return null;
+  const openaiApiKey = $("openai-api-key")?.value.trim() || "";
+  const geminiApiKey = $("gemini-api-key")?.value.trim() || "";
+  if (!openaiApiKey && !geminiApiKey) return null;
   return {
-    provider: "gemini",
+    provider: "auto",
+    use_openai: true,
     use_gemini: true,
-    api_key: apiKey,
-    model: "gemini-2.5-flash",
+    openai_api_key: openaiApiKey,
+    gemini_api_key: geminiApiKey,
+    openai_model: "gpt-5.2",
+    gemini_model: "gemini-2.5-flash",
     output_style: "자기소개서 문체",
     paragraphs: 3,
     min_chars: 1000,
@@ -81,6 +86,14 @@ function withoutApiKey(payload) {
   if (copy.generation?.api_key) {
     copy.generation.api_key = "";
     copy.generation.api_key_provided = true;
+  }
+  if (copy.generation?.openai_api_key) {
+    copy.generation.openai_api_key = "";
+    copy.generation.openai_api_key_provided = true;
+  }
+  if (copy.generation?.gemini_api_key) {
+    copy.generation.gemini_api_key = "";
+    copy.generation.gemini_api_key_provided = true;
   }
   return copy;
 }
@@ -117,9 +130,13 @@ function renderQuestions(questions = []) {
     return `<div class="empty-state">공통 질문이 없습니다.</div>`;
   }
   return questions.slice(0, 5).map((item, index) => `
-    <div class="list-item">
-      <strong>${index + 1}. ${escapeHtml(item.question)}</strong>
-      <span class="meta">${escapeHtml(item.count)}회 · 예시 회사 ${escapeHtml((item.example_companies || []).join(", ") || "없음")}</span>
+    <div class="list-item editable-question" data-question-index="${index}">
+      <label class="edit-label" for="question-${index}">${index + 1}. 공통 문항</label>
+      <textarea id="question-${index}" data-question-edit="${index}" rows="2">${escapeHtml(item.question)}</textarea>
+      <div class="question-actions">
+        <span class="meta">유사 문항 묶음 ${escapeHtml(item.count)} · 예시 회사 ${escapeHtml((item.example_companies || []).join(", ") || "없음")}</span>
+        <button class="small-button" type="button" data-save-question="${index}">문항 저장</button>
+      </div>
     </div>
   `).join("");
 }
@@ -127,6 +144,20 @@ function renderQuestions(questions = []) {
 function renderKeywords(plan = {}) {
   const values = plan.focus_areas || ["직무 역량", "협업", "문제 해결"];
   return values.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+}
+
+function renderAppliedEvidence(item = {}) {
+  const applied = item.applied_evidence || [];
+  if (applied.length) {
+    return `<div class="evidence-list">${applied.map((text) => `<span>반영 근거 · ${escapeHtml(text)}</span>`).join("")}</div>`;
+  }
+  const evidenceItems = item.evidence_items || [];
+  if (!evidenceItems.length) return "";
+  return `<div class="evidence-list">${evidenceItems.map((evidence) => {
+    const label = typeof evidence === "object" ? evidence.field_label : "스펙";
+    const text = typeof evidence === "object" ? evidence.text : evidence;
+    return `<span>${escapeHtml(label)} · ${escapeHtml(text)}</span>`;
+  }).join("")}</div>`;
 }
 
 function renderResults(results = []) {
@@ -146,30 +177,86 @@ function renderDrafts(drafts = []) {
   if (!drafts.length) {
     return `<div class="empty-state">홈에서 준비 결과를 먼저 생성하세요.</div>`;
   }
-  return drafts.map((item) => `
-    <article class="draft-block">
-      <strong>${escapeHtml(item.index)}. ${escapeHtml(item.question)}</strong>
-      <span class="meta">${escapeHtml(item.label)} · 참고 ${escapeHtml(item.source_count)}회 · ${escapeHtml(item.draft_chars || 0)}자 · ${item.gemini_generated ? "Gemini 생성" : "기존 방식 생성"} · ${item.evidence_status === "matched" ? "문항 적합 스펙 사용" : "추가 경험 필요"}</span>
-      ${item.gemini_error ? `<p class="error-line">${escapeHtml(item.gemini_error)}</p>` : ""}
-      ${(item.evidence_items || []).length ? `<div class="evidence-list">${item.evidence_items.map((evidence) => {
-        const label = typeof evidence === "object" ? evidence.field_label : "스펙";
-        const text = typeof evidence === "object" ? evidence.text : evidence;
-        return `<span>${escapeHtml(label)} · ${escapeHtml(text)}</span>`;
-      }).join("")}</div>` : ""}
-      <div class="draft-body">${escapeHtml(item.draft)}</div>
-      ${(item.reference_examples || []).length ? `
-        <div class="reference-box">
-          <strong>Top-K 참고 흐름</strong>
-          ${(item.reference_examples || []).slice(0, 2).map((ref) => `
-            <p>${escapeHtml(ref.company || "참고 사례")} · ${escapeHtml(ref.usable_pattern || "")}<br>${escapeHtml(ref.preview || "")}</p>
-          `).join("")}
+  return drafts.map((item, index) => {
+    const needsInput = item.evidence_status !== "matched" || item.draft_type === "needs_input";
+    const providerLabel = item.openai_generated ? "OpenAI 생성" : item.gemini_generated ? "Gemini 생성" : "로컬 RAG 생성";
+    const statusLabel = needsInput ? "초안 미생성 · 입력 보완 필요" : `참고 ${item.source_count || 0}회 · ${escapeHtml(item.draft_chars || 0)}자 · ${providerLabel} · 문항 적합 스펙 사용`;
+    return `
+      <article class="draft-block" data-draft-index="${index}">
+        <div class="draft-question-row">
+          <label class="edit-label" for="draft-question-${index}">${escapeHtml(item.index)}. 자소서 문항</label>
+          <button class="small-button" type="button" data-toggle-draft-question="${index}">문항 수정</button>
         </div>
-      ` : ""}
-      <ul class="notes-list">
-        ${(item.edit_notes || []).map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
-      </ul>
-    </article>
-  `).join("");
+        <strong data-draft-question-view="${index}">${escapeHtml(item.question)}</strong>
+        <div class="draft-question-editor" data-draft-question-editor="${index}" hidden>
+          <textarea id="draft-question-${index}" data-draft-question-input="${index}" rows="3">${escapeHtml(item.question)}</textarea>
+          <button class="small-button" type="button" data-save-draft-question="${index}">수정 문항 저장</button>
+        </div>
+        <span class="meta">${escapeHtml(item.label)} · ${statusLabel}</span>
+        ${item.gemini_error ? `<p class="error-line">${escapeHtml(item.gemini_error)}</p>` : ""}
+        ${renderAppliedEvidence(item)}
+        ${needsInput ? `<div class="draft-warning">${escapeHtml(item.draft)}</div>` : `<div class="draft-body">${escapeHtml(item.draft)}</div>`}
+        ${(item.reference_examples || []).length && !needsInput ? `
+          <div class="reference-box">
+            <strong>Top-K 참고 흐름</strong>
+            ${(item.reference_examples || []).slice(0, 2).map((ref) => `
+              <p>${escapeHtml(ref.company || "참고 사례")} · ${escapeHtml(ref.usable_pattern || "")}<br>${escapeHtml(ref.preview || "")}</p>
+            `).join("")}
+          </div>
+        ` : ""}
+        <ul class="notes-list">
+          ${(item.edit_notes || []).map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
+        </ul>
+      </article>
+    `;
+  }).join("");
+}
+
+function updateQuestionInState(index, question) {
+  const data = loadState();
+  if (!data.output?.questions?.[index]) return;
+  data.output.questions[index].question = question;
+  if (data.output.drafts?.[index]) {
+    data.output.drafts[index].question = question;
+  }
+  saveState(data);
+}
+
+function updateDraftQuestionInState(index, question) {
+  const data = loadState();
+  if (!data.output?.drafts?.[index]) return;
+  data.output.drafts[index].question = question;
+  if (data.output.questions?.[index]) {
+    data.output.questions[index].question = question;
+  }
+  saveState(data);
+}
+
+async function regenerateWithEditedQuestions() {
+  const data = loadState();
+  const questions = (data.output?.drafts || data.output?.questions || [])
+    .map((item) => item.question)
+    .filter(Boolean);
+  if (!data.input || !questions.length) {
+    $("draft-meta") && ($("draft-meta").textContent = "수정할 문항이 없습니다.");
+    return;
+  }
+  $("draft-meta") && ($("draft-meta").textContent = "수정한 문항으로 다시 생성 중입니다.");
+  const payload = {
+    ...data.input,
+    custom_questions: questions,
+    top_k: 8,
+  };
+  const response = await fetch("/api/prepare", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const output = await response.json();
+  const next = { input: data.input, output };
+  saveState(next);
+  $("drafts") && ($("drafts").innerHTML = renderDrafts(output.drafts || []));
+  $("draft-meta") && ($("draft-meta").textContent = `${data.input.target_company || "지원 회사"} · ${data.input.target_job || ""} · 수정 문항 반영 완료`);
 }
 
 function renderInterview(plan = {}) {
@@ -185,6 +272,9 @@ function renderInterview(plan = {}) {
 }
 
 function renderInterviewCards(items = []) {
+  if (interviewState.loading && interviewState.activeTab !== "basic") {
+    return `<div class="empty-state">개인 맞춤 면접 질문을 불러오는 중입니다. 시간이 조금 걸릴 수 있습니다.</div>`;
+  }
   if (!items.length) {
     return `<div class="empty-state">질문을 불러오지 못했습니다. 스펙을 입력한 뒤 다시 시도하세요.</div>`;
   }
@@ -217,19 +307,37 @@ function setInterviewTab(tab) {
 
 function savedInterviewPayload() {
   const data = loadState();
+  const coverLetterQuestions = (data.output?.drafts || data.output?.questions || [])
+    .map((item) => ({
+      question: item.question || "",
+      label: item.label || "",
+      draft: item.draft || "",
+      evidence_items: item.evidence_items || [],
+    }))
+    .filter((item) => item.question || item.draft);
   return {
     large: data.input?.large || "",
     medium: data.input?.medium || "",
     target_company: data.input?.target_company || "",
     target_job: data.input?.target_job || "",
+    company_questions: data.input?.company_questions || "",
     user_profile: data.input?.user_profile || "",
     structured_profile: data.input?.structured_profile || {},
+    cover_letter_questions: coverLetterQuestions,
+    cover_letter_text: (data.output?.drafts || []).map((draft) => draft.draft).filter(Boolean).join("\n\n"),
   };
 }
 
 async function loadInterviewQuestions() {
   const status = $("interview-status");
-  status && (status.textContent = "AI Hub 면접 데이터셋에서 질문을 불러오는 중입니다.");
+  const refreshButton = $("refresh-interview");
+  interviewState.loading = true;
+  status && (status.textContent = "개인 맞춤 면접 질문을 불러오는 중입니다. 데이터셋 비교 때문에 시간이 조금 걸릴 수 있습니다.");
+  if (refreshButton) {
+    refreshButton.disabled = true;
+    refreshButton.textContent = "로딩 중";
+  }
+  setInterviewTab(interviewState.activeTab);
   try {
     const response = await fetch("/api/interview/questions", {
       method: "POST",
@@ -242,13 +350,21 @@ async function loadInterviewQuestions() {
       personalized: output.personalized_questions || [],
       dataset: output.dataset_questions || [],
     };
+    interviewState.loading = false;
     const zipCount = output.dataset?.status?.zip_count || 0;
     const rowCount = output.dataset?.row_count || 0;
-    status && (status.textContent = `라벨 ZIP ${zipCount}개, 면접 Q&A ${rowCount.toLocaleString()}개를 기준으로 준비했습니다.`);
+    const clusterText = output.cluster_question_count ? ` 자소서 문항 ${output.cluster_question_count}개와 같은 묶음의 질문을 우선 반영했습니다.` : "";
+    status && (status.textContent = `면접 데이터셋 ${rowCount.toLocaleString()}개 중 직무와 문항 묶음이 가까운 질문을 골랐습니다.${clusterText}`);
     setInterviewTab(interviewState.activeTab);
   } catch {
+    interviewState.loading = false;
     status && (status.textContent = "면접 질문을 불러오지 못했습니다. 서버와 데이터셋 경로를 확인하세요.");
     setInterviewTab(interviewState.activeTab);
+  } finally {
+    if (refreshButton) {
+      refreshButton.disabled = false;
+      refreshButton.textContent = "질문 불러오기";
+    }
   }
 }
 
@@ -393,31 +509,26 @@ async function saveInterviewHistory() {
 
 function renderHistory(items = []) {
   if (!items.length) {
-    return `<div class="empty-state">저장된 히스토리가 없습니다.</div>`;
+    return `<div class="empty-state">불러올 자소서가 없습니다.</div>`;
   }
   const start = (historyState.page - 1) * historyState.pageSize;
   const pageItems = items.slice(start, start + historyState.pageSize);
   return pageItems.map((item, index) => {
     const globalIndex = start + index;
+    const payload = item.payload || {};
     return `
-    <button class="history-card ${globalIndex === historyState.selectedIndex ? "is-selected" : ""}" type="button" data-history-index="${globalIndex}">
-      <div class="history-score">${escapeHtml(item.score)}</div>
+    <a class="history-card ${globalIndex === historyState.selectedIndex ? "is-selected" : ""}" href="/history/${escapeHtml(item.id)}" data-history-index="${globalIndex}">
+      <div class="history-score">${escapeHtml(item.id)}</div>
       <div>
         <div class="history-meta">
-          <span>${escapeHtml(item.occupation_label)}</span>
+          <span>${escapeHtml(payload.large || item.occupation_label)}</span>
           <span>${escapeHtml(item.target_job)}</span>
           <span>${escapeHtml(item.created_at)}</span>
         </div>
-        <h3>${escapeHtml(item.question)}</h3>
-        <p>${escapeHtml(item.answer_text)}</p>
-        <div class="evidence-list">
-          <span>전공 · ${escapeHtml(item.major || "없음")}</span>
-          <span>자격증 · ${escapeHtml(item.certificates || "없음")}</span>
-          <span>팀프로젝트 · ${escapeHtml(item.team_projects || "없음")}</span>
-          <span>기타 · ${escapeHtml(item.other_specs || "없음")}</span>
-        </div>
+        <h3>${escapeHtml(item.id)}. ${escapeHtml(item.target_job)}</h3>
+        <p>문항별 자기소개서 5개 저장됨</p>
       </div>
-    </button>
+    </a>
   `;
   }).join("");
 }
@@ -433,42 +544,122 @@ function renderHistoryPagination() {
 
 function renderHistoryDetail(item) {
   if (!item) {
-    return `<div class="empty-state">왼쪽 샘플을 클릭하면 자소서와 관련 면접 질문을 확인할 수 있습니다.</div>`;
+    return `<div class="empty-state">왼쪽 자소서를 클릭하면 문항별 자기소개서를 확인할 수 있습니다.</div>`;
   }
-  const relatedQuestions = item.related_questions || [];
+  return renderHistoryFullDetail(item);
+}
+
+function renderHistoryFullDetail(item) {
+  if (!item) {
+    return `<div class="empty-state">해당 자소서를 찾지 못했습니다.</div>`;
+  }
+  const payload = item.payload || {};
+  const fullResult = payload.full_generation_result || {};
+  const fullDrafts = fullResult.drafts?.length ? fullResult.drafts : parseStoredDraftSections(item.cover_letter || "");
+  const generationProvider = payload.generation_provider || item.source_note || "local";
   return `
     <div class="detail-heading">
       <div>
-        <p class="card-label">${escapeHtml(item.occupation_label)}</p>
-        <h2>${escapeHtml(item.target_job)}</h2>
+        <p class="card-label">${escapeHtml(item.occupation_label || "Saved Cover Letter")}</p>
+        <h2>${escapeHtml(item.target_job || "지원 직무")}</h2>
+        <p class="meta">${escapeHtml(item.created_at || "")} · ${escapeHtml(generationProvider)}</p>
       </div>
-      <div class="history-score large-score">${escapeHtml(item.score)}</div>
-    </div>
-    <div class="evidence-list">
-      <span>전공 · ${escapeHtml(item.major || "없음")}</span>
-      <span>자격증 · ${escapeHtml(item.certificates || "없음")}</span>
-      <span>팀프로젝트 · ${escapeHtml(item.team_projects || "없음")}</span>
-      <span>기타 · ${escapeHtml(item.other_specs || "없음")}</span>
-    </div>
-    <section class="detail-section">
-      <p class="card-label">자소서 Sample</p>
-      <div class="draft-body">${escapeHtml(item.cover_letter || "저장된 자소서 본문이 없습니다.")}</div>
-    </section>
-    <section class="detail-section">
-      <p class="card-label">관련 면접 질문</p>
-      <div class="stack-list">
-        ${relatedQuestions.map((question, index) => `
-          <div class="list-item">
-            <strong>${index + 1}. ${escapeHtml(question)}</strong>
-          </div>
-        `).join("") || `<div class="empty-state">관련 질문이 없습니다.</div>`}
+      <div class="history-detail-actions">
+        <button class="ghost-button" type="button" data-history-restore="cover-letter">자소서 보기</button>
+        <button class="primary-action compact-action" type="button" data-history-restore="interview">면접 보기</button>
       </div>
-    </section>
-    <section class="detail-section">
-      <p class="card-label">샘플 답변</p>
-      <p class="detail-answer">${escapeHtml(item.answer_text)}</p>
-    </section>
+    </div>
+
+    ${fullDrafts.length ? `
+      <section class="detail-section">
+        <p class="card-label">문항별 자소서</p>
+        <div class="stack-list">
+          ${fullDrafts.slice(0, 5).map((draft, index) => `
+            <article class="list-item">
+              <strong>${index + 1}. ${escapeHtml(draft.question || "자소서 문항")}</strong>
+              <span class="meta">${escapeHtml(draft.label || "")} · ${escapeHtml(draft.draft_chars || 0)}자 · ${escapeHtml(fullResult.generation_provider || generationProvider)}</span>
+              ${renderAppliedEvidence(draft)}
+              <div class="draft-body">${escapeHtml(draft.draft || "")}</div>
+            </article>
+          `).join("")}
+        </div>
+      </section>
+    ` : `<div class="empty-state">문항별 저장 결과가 없습니다.</div>`}
   `;
+}
+
+function historyItemToPrepState(item) {
+  const payload = item.payload || {};
+  const fullResult = payload.full_generation_result || {};
+  const profile = payload.structured_profile || {};
+  const drafts = fullResult.drafts?.length ? fullResult.drafts : parseStoredDraftSections(item.cover_letter || "");
+  const questions = fullResult.questions || drafts.map((draft) => ({
+    question: draft.question,
+    count: 1,
+    example_companies: [],
+  }));
+  const output = {
+    filtered_count: 0,
+    retrieved_count: 0,
+    requires_profile: false,
+    results: [],
+    questions,
+    drafts,
+    interview_plan: fullResult.interview_plan || {
+      questions: item.related_questions || [],
+      focus_areas: [],
+      answer_rule: "저장된 자기소개서 문항별 근거를 중심으로 답변합니다.",
+    },
+    interview_api_seed: {},
+    question_generation: {
+      method: "히스토리에 저장된 실제 생성 결과를 불러왔습니다.",
+    },
+    prompt: "",
+    generation_provider: fullResult.generation_provider || payload.generation_provider || item.source_note || "history",
+  };
+  const input = {
+    large: payload.large || "",
+    medium: payload.medium || "",
+    target_company: payload.target_company || "",
+    target_job: item.target_job || payload.target_job || "",
+    company_questions: (questions || []).map((question) => question.question).filter(Boolean).join("\n"),
+    user_profile: "",
+    structured_profile: {
+      major: item.major || profile.major || "",
+      certificates: item.certificates || profile.certificates || "",
+      team_projects: item.team_projects || profile.team_projects || "",
+      other_specs: item.other_specs || profile.other_specs || "",
+      age: profile.age || "",
+      gender: profile.gender || "",
+    },
+    top_k: 8,
+  };
+  return { input, output };
+}
+
+function restoreHistoryToSession(item, destination) {
+  saveState(historyItemToPrepState(item));
+  window.location.href = destination === "interview" ? "/pages/interview.html" : "/pages/cover-letter.html";
+}
+
+function parseStoredDraftSections(text) {
+  const source = String(text || "");
+  const pattern = /\[(\d+)\.\s*([^\]]+)\]\n/g;
+  const matches = [...source.matchAll(pattern)];
+  if (!matches.length) return [];
+  return matches.map((match, index) => {
+    const start = match.index + match[0].length;
+    const end = matches[index + 1]?.index ?? source.length;
+    const draft = source.slice(start, end).trim();
+    return {
+      index: Number(match[1]),
+      question: match[2].trim(),
+      label: "저장 문항",
+      draft,
+      draft_chars: draft.length,
+      evidence_items: [],
+    };
+  }).filter((item) => item.draft);
 }
 
 function selectHistory(index) {
@@ -495,10 +686,11 @@ async function loadHistory() {
     const response = await fetch("/api/history");
     const output = await response.json();
     const items = output.items || [];
+    const savedResultCount = items.filter((item) => (item.source_note || "").includes("generated full result")).length;
     historyState.items = items;
     historyState.selectedIndex = 0;
     historyState.page = 1;
-    summary && (summary.textContent = `SQLite DB에서 ${items.length.toLocaleString()}개의 샘플 자소서와 관련 면접 질문을 불러왔습니다.`);
+    summary && (summary.textContent = `SQLite DB에서 실제 저장된 자소서 결과 ${items.length.toLocaleString()}개를 불러왔습니다. 생성 결과 전체 저장 ${savedResultCount.toLocaleString()}개가 포함되어 있습니다.`);
     list && (list.innerHTML = renderHistory(items));
     $("history-pagination") && ($("history-pagination").innerHTML = renderHistoryPagination());
     $("history-detail") && ($("history-detail").innerHTML = renderHistoryDetail(items[0]));
@@ -508,16 +700,55 @@ async function loadHistory() {
   }
 }
 
+async function loadHistoryFullDetail() {
+  const match = window.location.pathname.match(/\/history\/(\d+)/);
+  const id = match?.[1];
+  const container = $("history-full-detail");
+  if (!id) {
+    container && (container.innerHTML = `<div class="empty-state">히스토리 ID가 없습니다.</div>`);
+    return;
+  }
+  try {
+    const response = await fetch(`/api/history/${id}`);
+    const output = await response.json();
+    if (!response.ok || !output.item) {
+      container && (container.innerHTML = `<div class="empty-state">해당 자소서를 찾지 못했습니다.</div>`);
+      return;
+    }
+    const item = output.item;
+    $("history-detail-title") && ($("history-detail-title").textContent = `${item.target_job || "지원 직무"} 자소서`);
+    $("history-detail-summary") && ($("history-detail-summary").textContent = `${item.question || "저장된 문항"} · ${item.created_at || ""}`);
+    container && (container.innerHTML = renderHistoryFullDetail(item));
+    if (container) {
+      container.onclick = (event) => {
+        const button = event.target.closest("[data-history-restore]");
+        if (!button) return;
+        restoreHistoryToSession(item, button.dataset.historyRestore);
+      };
+    }
+  } catch {
+    container && (container.innerHTML = `<div class="empty-state">자소서를 불러오지 못했습니다.</div>`);
+  }
+}
+
 function hydrateHome(data) {
   if (!data.output) return;
+  const openai = data.output.openai;
   const gemini = data.output.gemini;
-  let geminiText = "";
-  if (gemini?.fallback_to_local) {
-    geminiText = ` ${gemini.fallback_reason || "Gemini 대신 기존 방식으로 생성했습니다."}`;
-  } else if (gemini?.enabled) {
-    geminiText = ` Gemini ${gemini.success_count || 0}/${gemini.attempted_count || (data.output.drafts || []).length}개 재생성.`;
+  let generationText = "";
+  if (openai?.success_count > 0) {
+    const savedCount = data.output.local_learning?.saved_count || 0;
+    generationText = ` OpenAI ${openai.success_count}/${openai.attempted_count || (data.output.drafts || []).length}개 생성, 로컬 학습 ${savedCount}개 저장.`;
+  } else if (openai?.fallback_to_next) {
+    generationText = ` ${openai.fallback_reason || "OpenAI 대신 다음 생성기로 전환했습니다."}`;
   }
-  $("summary").textContent = `직무 후보 ${data.output.filtered_count.toLocaleString()}건을 참고해 공통 질문 ${data.output.questions.length}개와 면접 질문을 만들었습니다.${geminiText}`;
+  if (gemini?.fallback_to_local) {
+    generationText += ` ${gemini.fallback_reason || "Gemini 대신 기존 방식으로 생성했습니다."}`;
+  } else if (gemini?.enabled) {
+    generationText += ` Gemini ${gemini.success_count || 0}/${gemini.attempted_count || (data.output.drafts || []).length}개 재생성.`;
+  }
+  const method = data.output.question_generation?.method || "직무와 지원자 경험을 기준으로 공통 질문을 만들었습니다.";
+  $("summary").textContent = `직무 후보 ${data.output.filtered_count.toLocaleString()}건에서 ${data.output.questions.length}개 문항 묶음을 만들었습니다. ${method}${generationText}`;
   $("score-value").textContent = "87";
   $("score-title").textContent = "상위 15%";
   $("score-note").textContent = "입력한 스펙을 기준으로 자소서와 면접 준비 흐름을 구성했습니다.";
@@ -536,6 +767,7 @@ async function runPrep(event) {
     medium: $("medium").value,
     target_company: $("company").value.trim(),
     target_job: $("job").value.trim(),
+    company_questions: $("company-questions").value.trim(),
     user_profile: $("profile").value.trim(),
     structured_profile: {
       major: $("major").value.trim(),
@@ -582,6 +814,7 @@ function initHome() {
   if (saved.input) {
     $("company").value = saved.input.target_company || "";
     $("job").value = saved.input.target_job || "";
+    $("company-questions").value = saved.input.company_questions || "";
     $("profile").value = saved.input.user_profile || "";
     $("major").value = saved.input.structured_profile?.major || "";
     $("certificates").value = saved.input.structured_profile?.certificates || "";
@@ -593,6 +826,17 @@ function initHome() {
   hydrateHome(saved);
   $("large")?.addEventListener("change", fillMedium);
   $("prep-form")?.addEventListener("submit", runPrep);
+  $("questions")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-save-question]");
+    if (!button) return;
+    const index = Number(button.dataset.saveQuestion);
+    const textarea = document.querySelector(`[data-question-edit="${index}"]`);
+    const question = textarea?.value.trim() || "";
+    if (!question) return;
+    updateQuestionInState(index, question);
+    button.textContent = "저장됨";
+    setTimeout(() => { button.textContent = "문항 저장"; }, 900);
+  });
   loadCategories().then(() => {
     if (saved.input) {
       $("large").value = saved.input.large || "";
@@ -606,6 +850,27 @@ function initCoverLetterPage() {
   const data = loadState();
   $("drafts") && ($("drafts").innerHTML = renderDrafts(data.output?.drafts || []));
   $("draft-meta") && ($("draft-meta").textContent = data.input?.target_job ? `${data.input.target_company || "지원 회사"} · ${data.input.target_job}` : "저장된 준비 결과가 없습니다.");
+  $("drafts")?.addEventListener("click", (event) => {
+    const toggle = event.target.closest("[data-toggle-draft-question]");
+    if (toggle) {
+      const editor = document.querySelector(`[data-draft-question-editor="${toggle.dataset.toggleDraftQuestion}"]`);
+      if (editor) editor.hidden = !editor.hidden;
+      return;
+    }
+    const save = event.target.closest("[data-save-draft-question]");
+    if (save) {
+      const index = Number(save.dataset.saveDraftQuestion);
+      const input = document.querySelector(`[data-draft-question-input="${index}"]`);
+      const question = input?.value.trim() || "";
+      if (!question) return;
+      updateDraftQuestionInState(index, question);
+      const view = document.querySelector(`[data-draft-question-view="${index}"]`);
+      if (view) view.textContent = question;
+      save.textContent = "저장됨";
+      setTimeout(() => { save.textContent = "수정 문항 저장"; }, 900);
+    }
+  });
+  $("regenerate-drafts")?.addEventListener("click", regenerateWithEditedQuestions);
 }
 
 function initInterviewPage() {
@@ -643,7 +908,7 @@ function initHistoryPage() {
   $("refresh-history")?.addEventListener("click", loadHistory);
   $("history-list")?.addEventListener("click", (event) => {
     const card = event.target.closest("[data-history-index]");
-    if (card) selectHistory(card.dataset.historyIndex);
+    if (card) return;
   });
   $("history-pagination")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-history-page]");
@@ -658,4 +923,5 @@ document.addEventListener("DOMContentLoaded", () => {
   if (page === "cover-letter") initCoverLetterPage();
   if (page === "interview") initInterviewPage();
   if (page === "history") initHistoryPage();
+  if (page === "history-detail") loadHistoryFullDetail();
 });

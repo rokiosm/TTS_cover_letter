@@ -15,6 +15,8 @@ from RAG.draft_generator import (
     profile_has_content,
     structured_profile_to_text,
 )
+from RAG.prompt_policy import cover_letter_policy_text
+from RAG.question_answer_ranker import answer_embedding_text, load_ranker_weights, score_document
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,7 +120,7 @@ def load_question_documents():
     documents = []
     for row in read_csv(QUESTION_CONTEXT_PATH):
         retrieval_context = row.get(RETRIEVAL_CONTEXT_FIELD) or row.get("answer", "")
-        text = " ".join([row.get("job", ""), row.get("large", ""), row.get("medium", ""), retrieval_context])
+        text = answer_embedding_text(row)
         documents.append(
             {
                 "question_id": row.get("question_id", ""),
@@ -236,15 +238,19 @@ def filter_documents(documents, large="", medium="", small="", job_keyword=""):
     return filtered
 
 
-def retrieve(documents, query, top_k):
+def retrieve(documents, query, top_k, profile_text="", target_job=""):
     if not documents:
         return []
     idf = build_idf(documents)
     avgdl = sum(len(document["tokens"]) for document in documents) / len(documents)
     query_tokens = tokenize(query)
+    ranker_weights = load_ranker_weights()
     scored = []
     for document in documents:
-        score = bm25_score(query_tokens, document, idf, avgdl)
+        bm25 = bm25_score(query_tokens, document, idf, avgdl)
+        answer_match = score_document(query, profile_text, target_job, document, ranker_weights)
+        score = bm25 + (answer_match * 12)
+        document["answer_match_score"] = round(answer_match, 4)
         scored.append((score, document))
     scored.sort(key=lambda item: item[0], reverse=True)
     return [(score, document) for score, document in scored[:top_k] if score > 0]
@@ -338,7 +344,7 @@ def build_generation_prompt(results, questions, user_profile, target_company, ta
     question_lines = [f"- {question} ({count}회)" for question, count, _ in questions]
     return "\n\n".join(
         [
-            "너는 합격 자기소개서 작성 도우미다.",
+            cover_letter_policy_text(),
             f"지원 회사: {target_company or '(미지정)'}",
             f"지원 직무: {target_job or '(미지정)'}",
             f"지원자 정보: {user_profile or '(미지정)'}",
@@ -360,6 +366,8 @@ def run_rag(
     target_job="",
     user_profile="",
     structured_profile=None,
+    company_questions="",
+    custom_questions=None,
     documents=None,
 ):
     documents = documents or load_documents()
@@ -379,12 +387,19 @@ def run_rag(
             "requires_profile": True,
         }
 
-    search_query = " ".join([target_job, profile_text, job_keyword, query]).strip()
+    question_text = " ".join(custom_questions or [])
+    search_query = " ".join([target_job, profile_text, company_questions, question_text, job_keyword, query]).strip()
     if not search_query:
         search_query = "지원동기 직무역량 성과 경험 입사 후 포부"
 
-    results = retrieve(filtered, search_query, top_k)
-    questions = common_questions_for_job(target_job, results, structured_profile)
+    results = retrieve(filtered, search_query, top_k, profile_text, target_job)
+    questions = common_questions_for_job(
+        target_job,
+        results,
+        structured_profile,
+        company_questions=company_questions,
+        custom_questions=custom_questions,
+    )
     reference_guides = build_reference_guides(results)
     drafts = build_cover_letter_drafts(questions, structured_profile, target_company, target_job, reference_guides)
     interview_plan = build_interview_plan(drafts, profile_text, target_job)
@@ -404,6 +419,11 @@ def run_rag(
             profile_text,
             structured_profile,
         ),
+        "question_generation": {
+            "method": "기업/이력서 문항, 직무, 지원자 경험, 기존 합격 문항을 토큰 코사인 유사도와 자카드 유사도로 묶어 대표 공통문항을 고릅니다.",
+            "company_question_count": len([line for line in company_questions.splitlines() if line.strip()]),
+            "custom_question_count": len(custom_questions or []),
+        },
         "prompt": prompt,
         "requires_profile": False,
     }
@@ -435,6 +455,7 @@ def serialize_rag_output(output):
                 "source_type": document.get("source_type", "question_context"),
                 "question_label": document.get("question_label", ""),
                 "question_text": document.get("question_text", ""),
+                "answer_match_score": document.get("answer_match_score", 0),
                 "spec": document["spec"],
                 "link": document["link"],
                 "category": {
@@ -453,6 +474,7 @@ def serialize_rag_output(output):
         "drafts": output.get("drafts", []),
         "interview_plan": output.get("interview_plan", {}),
         "interview_api_seed": output.get("interview_api_seed", {}),
+        "question_generation": output.get("question_generation", {}),
         "prompt": output["prompt"],
     }
 

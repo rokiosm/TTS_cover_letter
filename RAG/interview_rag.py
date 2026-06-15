@@ -76,6 +76,22 @@ def tokenize_with_bigrams(text):
     return tokens + [f"{tokens[index]}_{tokens[index + 1]}" for index in range(len(tokens) - 1)]
 
 
+def question_label(question):
+    priority_rules = [
+        ("지원동기", ["지원동기", "지원 동기", "지원한 동기", "지원하게", "지원한 이유", "희망분야", "희망 분야"]),
+        ("입사 후 포부", ["입사 후", "포부", "목표", "기여", "계획"]),
+        ("협업/소통", ["협업", "팀", "소통", "커뮤니케이션", "역할 분담", "의견", "조율"]),
+        ("도전/문제해결", ["도전", "열정", "문제", "해결", "갈등", "실패", "극복"]),
+        ("직무역량", ["직무", "역량", "강점", "전문성", "경쟁력", "차별화"]),
+        ("경험/성과", ["성과", "경험", "프로젝트", "수상", "공모전"]),
+        ("성장과정", ["성장", "가치관", "본인", "자신"]),
+    ]
+    for label, keywords in priority_rules:
+        if any(keyword in question for keyword in keywords):
+            return label
+    return "공통 문항"
+
+
 def infer_occupation(target_job="", large="", medium=""):
     text = " ".join([target_job or "", large or "", medium or ""]).lower()
     for occupation, keywords in OCCUPATION_KEYWORDS:
@@ -232,6 +248,87 @@ def personalized_questions(target_job="", target_company="", structured_profile=
     return questions[:5]
 
 
+def cover_letter_question_text(item):
+    if isinstance(item, dict):
+        return normalize_space(item.get("question", ""))
+    return normalize_space(item)
+
+
+def cover_letter_draft_text(item):
+    if isinstance(item, dict):
+        return normalize_space(item.get("draft", ""))
+    return ""
+
+
+def cover_letter_evidence_text(item):
+    if not isinstance(item, dict):
+        return ""
+    values = []
+    for evidence in item.get("evidence_items", []) or []:
+        if isinstance(evidence, dict):
+            values.append(evidence.get("text", ""))
+        else:
+            values.append(str(evidence))
+    return normalize_space(" ".join(values))
+
+
+def compact_experience_phrase(text):
+    text = normalize_space(text)
+    if not text:
+        return "자기소개서에 쓴 핵심 경험"
+    patterns = [
+        r"근거로 삼는 경험은\s+(.+?경험)입니다",
+        r"가장 중심이 된 경험은\s+(.+?)입니다",
+        r"경험으로는\s+(.+?)을 들 수 있습니다",
+        r"설명할 수 있는 경험은\s+(.+?)입니다",
+        r"연결되는 근거는\s+(.+?)입니다",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)[:90]
+    for sentence in re.split(r"(?<=[.!?。])\s+", text):
+        if any(keyword in sentence for keyword in ["팀 프로젝트", "프로젝트", "실습", "분석", "운영", "제작", "조율"]):
+            return sentence[:90]
+    first_sentence = re.split(r"(?<=[.!?。])\s+", text)[0]
+    first_sentence = first_sentence.replace("가장 중심이 된 경험은 ", "").replace("제가 직무 역량의 근거로 삼는 경험은 ", "")
+    return first_sentence[:90]
+
+
+def personalized_questions_from_cover_letter(cover_letter_questions=None, target_job="", target_company=""):
+    job = target_job or "지원 직무"
+    company = target_company or "지원 회사"
+    generated = []
+    seen_labels = set()
+    for item in cover_letter_questions or []:
+        question = cover_letter_question_text(item)
+        draft = cover_letter_draft_text(item)
+        evidence = cover_letter_evidence_text(item)
+        source = draft or evidence or question
+        phrase = compact_experience_phrase(source)
+        label = question_label(question)
+        if label in seen_labels:
+            continue
+        seen_labels.add(label)
+        if label == "지원동기":
+            generated.append(f"자기소개서에서 말한 '{phrase}'이 왜 {company}의 {job}와 연결된다고 생각하나요?")
+        elif label == "직무역량":
+            generated.append(f"'{phrase}'에서 본인이 직접 판단하거나 실행한 부분은 무엇인가요?")
+        elif label == "경험/성과":
+            generated.append(f"'{phrase}'의 결과를 어떤 기준으로 확인했고, 가장 크게 기여한 부분은 무엇인가요?")
+        elif label == "협업/소통":
+            generated.append(f"'{phrase}'에서 역할을 어떻게 나눴고 의견 차이는 어떤 기준으로 조율했나요?")
+        elif label == "도전/문제해결":
+            generated.append(f"'{phrase}'에서 처음 선택한 방법이 통하지 않았다면 어떻게 다시 접근했을까요?")
+        elif label == "입사 후 포부":
+            generated.append(f"입사 후 목표를 {job} 업무의 첫 3개월 실행 계획으로 바꾼다면 무엇부터 하겠습니까?")
+        else:
+            generated.append(f"자기소개서 문항 '{question}'에 사용한 경험을 60초 답변으로 요약해 주세요.")
+        if len(generated) >= 5:
+            break
+    return generated
+
+
 def serialize_document(score, document):
     return {
         "score": round(score, 4),
@@ -253,11 +350,21 @@ def serialize_document(score, document):
 
 def build_interview_set(payload):
     structured_profile = payload.get("structured_profile") or {}
+    cover_letter_questions = payload.get("cover_letter_questions") or []
+    cover_letter_question_strings = [cover_letter_question_text(item) for item in cover_letter_questions]
+    cover_letter_draft_strings = [cover_letter_draft_text(item) for item in cover_letter_questions]
+    cover_letter_evidence_strings = [cover_letter_evidence_text(item) for item in cover_letter_questions]
+    cover_letter_text = payload.get("cover_letter_text", "")
     query = " ".join(
         [
             payload.get("target_company", ""),
             payload.get("target_job", ""),
+            payload.get("company_questions", ""),
             payload.get("user_profile", ""),
+            " ".join(cover_letter_question_strings),
+            " ".join(cover_letter_draft_strings),
+            " ".join(cover_letter_evidence_strings),
+            cover_letter_text[:1200],
             structured_profile.get("major", ""),
             structured_profile.get("certificates", ""),
             structured_profile.get("team_projects", ""),
@@ -291,14 +398,21 @@ def build_interview_set(payload):
         if len(dataset_questions) >= 8:
             break
 
+    clustered_personal = personalized_questions_from_cover_letter(
+        cover_letter_questions,
+        payload.get("target_job", ""),
+        payload.get("target_company", ""),
+    )
+    fallback_personal = personalized_questions(payload.get("target_job", ""), payload.get("target_company", ""), structured_profile)
     personal = [
         {"type": "personalized", "category": "사용자 맞춤", "question": question, "answer_tip": "입력한 스펙을 실제 행동과 결과 중심으로 말합니다."}
-        for question in personalized_questions(payload.get("target_job", ""), payload.get("target_company", ""), structured_profile)
+        for question in (clustered_personal + fallback_personal)[:5]
     ]
     return {
         "dataset": interview_dataset_meta() if query else sample_dataset_meta(),
         "filters": filters,
         "filtered_count": len(filtered),
+        "cluster_question_count": len(cover_letter_questions),
         "basic_questions": DEFAULT_INTERVIEW_QUESTIONS,
         "personalized_questions": personal,
         "dataset_questions": dataset_questions,

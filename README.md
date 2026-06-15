@@ -9,7 +9,7 @@
 ## 이번 작업에서 중점적으로 한 것
 
 - 자기소개서 생성에서 끝나지 않고, 생성된 자기소개서 내용을 면접 질문과 답변 연습으로 이어지게 했습니다.
-- AI Hub 채용면접 라벨링 데이터셋을 로컬 데이터 경로로 연결해 직무별 면접 질문 후보를 가져올 수 있게 했습니다.
+- AI Hub 채용면접 라벨링 데이터셋을 프로젝트 내부 `DB/aihub_interview_labels/` 경로로 연결해 직무별 면접 질문 후보를 가져올 수 있게 했습니다.
 - `면접 보기` 화면에 기본 질문, 사용자 맞춤 질문, 데이터셋 기반 질문을 나누고 마이크 답변 입력과 답변 평가 흐름을 추가했습니다.
 - SQLite 기반 `history`를 만들어 연습 기록, 자소서 sample, 관련 면접 질문, 답변, 점수를 DB에서 다시 불러오게 했습니다.
 - history sample 20개를 직무별로 다르게 구성하고, 5개씩 페이지를 나누어 카드 클릭 시 상세 내용을 확인할 수 있게 했습니다.
@@ -101,6 +101,8 @@
 `interview_api_seed`에는 `demographic_options`가 포함됩니다. `age`, `gender`는 사용자가 선택한 경우에만 면접 데이터셋 비교 필터로 사용할 수 있고, 자기소개서 본문 생성 근거로는 사용하지 않는다는 사용 규칙을 함께 전달합니다.
 
 현재 서버는 `linkareer_1to740.csv`, `categories/직무_카테고리.csv`, `Embedding/question_contexts.csv`를 읽어서 동작합니다. `Embedding/question_contexts.csv`가 있으면 질문 단위 데이터셋을 우선 사용하고, 없으면 원본 CSV와 직무 카테고리 CSV를 조합해서 문서 단위로 검색합니다.
+
+AI Hub 채용면접 train 라벨 ZIP은 기본적으로 `DB/aihub_interview_labels/`에서 찾습니다. `TL_01.Management_Female_Experienced.zip`부터 `TL_07.ProductionManufacturing_Male_New.zip`까지 라벨 ZIP을 이 폴더에 두면 `/api/interview/status`와 데이터셋 기반 면접 질문이 해당 파일을 사용합니다. 다른 위치를 써야 할 때만 `.env`의 `AIHUB_INTERVIEW_LABEL_DIR` 값을 바꿉니다.
 
 공통 질문, 자기소개서 초안, 면접 준비 질문은 지원자 정보가 입력된 경우에만 생성됩니다. 지원자 정보가 비어 있으면 화면과 API 모두 준비 결과를 만들지 않고 입력 안내만 반환합니다.
 

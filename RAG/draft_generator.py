@@ -58,6 +58,7 @@ QUESTION_EVIDENCE_RULES = {
 }
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9가-힣+#.]+")
+QUESTION_SPLIT_PATTERN = re.compile(r"\n+|(?:(?:^|\s)\d+[.)]\s*)")
 
 
 def tokenize(text):
@@ -75,6 +76,8 @@ def has_final_consonant(text):
     char = text[-1]
     if "가" <= char <= "힣":
         return (ord(char) - ord("가")) % 28 != 0
+    if char.lower() in set("bcdfghjklmnpqrstvxz"):
+        return True
     return char.isdigit() and char not in "2459"
 
 
@@ -129,9 +132,61 @@ def infer_profile_signals(profile_text):
     return signals or ["지원 직무와 연결 가능한 경험"]
 
 
-def split_profile_items(text):
-    pieces = re.split(r"(?<=[.!?。])\s+|\n+|[,;/·]+", text or "")
+def split_profile_items(text, split_commas=True):
+    delimiter_pattern = r"(?<=[.!?。])\s+|\n+|[;,·]+" if split_commas else r"(?<=[.!?。])\s+|\n+|[;·]+"
+    pieces = re.split(delimiter_pattern, text or "")
     return [normalize_space(piece) for piece in pieces if normalize_space(piece)]
+
+
+def split_question_items(text):
+    pieces = QUESTION_SPLIT_PATTERN.split(text or "")
+    questions = []
+    for piece in pieces:
+        piece = normalize_space(piece).strip("-• ")
+        if len(piece) < 8:
+            continue
+        if not re.search(r"요\??|까\??|작성|기술|서술|설명|무엇|어떻게|경험|동기|목표|역량", piece):
+            continue
+        questions.append(piece[:180])
+    return questions
+
+
+def token_counter(text):
+    return Counter(tokenize(text))
+
+
+def cosine_similarity(left, right):
+    left_counter = token_counter(left)
+    right_counter = token_counter(right)
+    if not left_counter or not right_counter:
+        return 0.0
+    shared = set(left_counter) & set(right_counter)
+    numerator = sum(left_counter[token] * right_counter[token] for token in shared)
+    left_norm = sum(value * value for value in left_counter.values()) ** 0.5
+    right_norm = sum(value * value for value in right_counter.values()) ** 0.5
+    return numerator / (left_norm * right_norm or 1)
+
+
+def jaccard_similarity(left, right):
+    left_tokens = set(tokenize(left))
+    right_tokens = set(tokenize(right))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
+
+
+def question_similarity(left, right):
+    return (cosine_similarity(left, right) * 0.65) + (jaccard_similarity(left, right) * 0.35)
+
+
+def source_weight(source):
+    weights = {
+        "custom": 8,
+        "company": 6,
+        "retrieved": 3,
+        "template": 1,
+    }
+    return weights.get(source, 1)
 
 
 def split_structured_profile_items(structured_profile):
@@ -144,16 +199,20 @@ def split_structured_profile_items(structured_profile):
         "freeform": "추가 입력",
     }
     for key, label in field_labels.items():
-        for piece in split_profile_items(structured_profile.get(key, "")):
-            items.append({"field": key, "field_label": label, "text": piece})
+        split_commas = key not in {"team_projects", "other_specs"}
+        for order, piece in enumerate(split_profile_items(structured_profile.get(key, ""), split_commas=split_commas)):
+            items.append({"field": key, "field_label": label, "text": piece, "order": order})
     return items
 
 
 def polish_profile_item(piece):
     piece = normalize_space(piece).rstrip(".")
-    if piece == "컴퓨터공학과":
-        return "컴퓨터공학을 전공했습니다"
+    if piece in {"컴퓨터공학", "컴퓨터공학과"}:
+        return "컴퓨터공학 전공에서 자료구조, 알고리즘, 시스템 흐름을 학습한 경험"
     replacements = [
+        (r"하고$", "했습니다"),
+        (r"하며$", "했습니다"),
+        (r"하고,", "하고"),
         (r"들음$", "수강했습니다"),
         (r"사용$", "활용했습니다"),
         (r"분류$", "분류를 수행했습니다"),
@@ -171,10 +230,20 @@ def polish_profile_item(piece):
 def score_profile_item(piece, label):
     rules = QUESTION_EVIDENCE_RULES.get(label, {})
     lowered = piece.lower()
+    indirect_specs = ["toeic", "토익", "토스", "토익스피킹", "opic", "오픽", "봉사", "volunteer"]
+    if any(keyword in lowered for keyword in indirect_specs):
+        return -8
+    if label in {"직무역량", "경험/성과", "도전/문제해결", "협업/소통"} and not any(
+        keyword in lowered
+        for keyword in ["프로젝트", "개발", "구현", "분석", "실험", "개선", "설계", "운영", "인턴", "팀", "협업", "데이터", "모델", "시스템"]
+    ):
+        return -5
     score = sum(2 for keyword in rules.get("prefer", []) if keyword.lower() in lowered)
     score -= sum(3 for keyword in rules.get("avoid", []) if keyword.lower() in lowered)
     if re.search(r"\d|%|명|건|회|개월|년", piece):
         score += 1
+    if len(piece) >= 80:
+        score += 2
     if "프로젝트" in piece and label in {"직무역량", "경험/성과", "도전/문제해결"}:
         score += 2
     if label == "협업/소통" and not any(keyword in lowered for keyword in ["팀", "협업", "소통", "조율", "분담", "팀원", "공동"]):
@@ -184,19 +253,21 @@ def score_profile_item(piece, label):
 
 def field_bonus(field, label):
     if field == "team_projects" and label in {"협업/소통", "경험/성과", "직무역량", "도전/문제해결"}:
-        return 6
-    if field == "major" and label in {"성장과정", "직무역량", "지원동기"}:
+        return 10
+    if field == "major" and label in {"성장과정", "지원동기"}:
         return 3
-    if field == "certificates" and label in {"직무역량", "입사 후 포부"}:
+    if field == "major" and label in {"직무역량", "경험/성과", "도전/문제해결", "협업/소통"}:
+        return -8
+    if field == "certificates" and label in {"입사 후 포부"}:
         return 2
-    if field == "certificates" and label in {"협업/소통", "경험/성과"}:
+    if field == "certificates" and label in {"직무역량", "협업/소통", "경험/성과", "도전/문제해결"}:
         return -6
     if field == "other_specs":
-        return 1
+        return 4
     return 0
 
 
-def select_evidence_items(structured_profile, label, limit=4):
+def select_evidence_items(structured_profile, label, limit=2):
     candidates = split_structured_profile_items(structured_profile)
     scored = [
         (score_profile_item(item["text"], label) + field_bonus(item["field"], label), len(item["text"]), item)
@@ -204,19 +275,50 @@ def select_evidence_items(structured_profile, label, limit=4):
     ]
     scored = [item for item in scored if item[0] > 0]
     scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    if any(item["field"] == "team_projects" for _, _, item in scored):
+        scored = [item for item in scored if item[2]["field"] != "major" or label in {"지원동기", "성장과정"}]
+    selected = [item for _, _, item in scored[:limit]]
+    if label in {"협업/소통", "경험/성과", "직무역량", "도전/문제해결"}:
+        team_items = [item for _, _, item in scored if item["field"] == "team_projects"]
+        support_items = [item for _, _, item in scored if item["field"] == "other_specs"]
+        certificate_items = [item for _, _, item in scored if item["field"] == "certificates"]
+        selected = []
+        if team_items:
+            selected.append(team_items[0])
+        for item in support_items + certificate_items:
+            if len(selected) >= limit:
+                break
+            if item not in selected:
+                selected.append(item)
+        if len(selected) < 2:
+            for item in [item for _, _, item in scored]:
+                if len(selected) >= limit:
+                    break
+                if item not in selected:
+                    selected.append(item)
+        if len(selected) < limit:
+            fallback_fields = ["other_specs", "certificates", "major"]
+            for field in fallback_fields:
+                for item in candidates:
+                    if len(selected) >= limit:
+                        break
+                    if item["field"] == field and item not in selected:
+                        selected.append(item)
+    selected.sort(key=lambda item: (item["field"] != "team_projects", item.get("order", 0)))
+    selected = selected[:limit]
     return [
         {"field": item["field"], "field_label": item["field_label"], "text": polish_profile_item(item["text"])}
-        for _, _, item in scored[:limit]
+        for item in selected
     ]
 
 
 def question_label(question):
     priority_rules = [
-        ("지원동기", ["지원동기", "지원 동기", "지원한 동기", "지원하게", "지원한 이유"]),
+        ("지원동기", ["지원동기", "지원 동기", "지원한 동기", "지원하게", "지원한 이유", "희망분야", "희망 분야"]),
         ("입사 후 포부", ["입사 후", "포부", "목표", "기여", "계획"]),
-        ("경험/성과", ["성과", "결과물", "수치", "프로젝트 성과", "맡은 역할과 결과"]),
         ("협업/소통", ["협업", "팀", "소통", "커뮤니케이션", "조직", "역할 분담", "의견", "조율"]),
-        ("도전/문제해결", ["도전", "문제", "해결", "갈등", "실패", "극복"]),
+        ("경험/성과", ["성과", "결과물", "수치", "프로젝트 성과", "맡은 역할과 결과", "수행한 프로젝트", "프로젝트 또는 경험", "프로젝트 또는 활동"]),
+        ("도전/문제해결", ["도전", "열정", "문제", "해결", "갈등", "실패", "극복"]),
         ("직무역량", ["직무", "역량", "강점", "전문성", "경쟁력", "차별화"]),
         ("경험/성과", ["성과", "경험", "프로젝트", "수상", "공모전"]),
         ("성장과정", ["성장", "가치관", "본인", "자신"]),
@@ -225,6 +327,65 @@ def question_label(question):
         if any(keyword in question for keyword in keywords):
             return label
     return "공통 문항"
+
+
+def polish_question(question, label):
+    question = normalize_space(question)
+    if question.endswith("?"):
+        return question
+    if question.endswith("요"):
+        return question + "?"
+    if re.search(r"작성|기술|서술", question):
+        return question.rstrip(".") + "."
+    defaults = {
+        "지원동기": "지원한 회사와 직무를 선택한 이유를 본인의 경험과 연결해 작성해주세요.",
+        "직무역량": "지원 직무에 필요한 핵심 역량과 이를 실제로 적용한 경험을 작성해주세요.",
+        "경험/성과": "직무와 연결되는 경험에서 맡은 역할, 실행 과정, 결과를 구체적으로 작성해주세요.",
+        "도전/문제해결": "어려운 문제를 해결하기 위해 시도한 방법과 그 결과를 작성해주세요.",
+        "협업/소통": "팀 안에서 역할을 나누고 의견을 조율해 공동 결과를 만든 경험을 작성해주세요.",
+        "입사 후 포부": "입사 후 이루고 싶은 목표와 회사에 기여할 방법을 작성해주세요.",
+    }
+    return defaults.get(label, question)
+
+
+def representative_question(items, label):
+    preferred = sorted(
+        items,
+        key=lambda item: (source_weight(item["source"]), len(item["question"])),
+        reverse=True,
+    )[0]["question"]
+    return polish_question(preferred, label)
+
+
+def most_common_label(items):
+    labels = Counter(question_label(item["question"]) for item in items)
+    label, _ = labels.most_common(1)[0]
+    return label
+
+
+def cluster_question_candidates(candidates, threshold=0.32):
+    clusters = []
+    for candidate in candidates:
+        best_cluster = None
+        best_score = 0.0
+        for cluster in clusters:
+            score = max(question_similarity(candidate["question"], item["question"]) for item in cluster["items"])
+            if score > best_score:
+                best_cluster = cluster
+                best_score = score
+        if best_cluster and best_score >= threshold:
+            best_cluster["items"].append(candidate)
+        else:
+            clusters.append({"items": [candidate]})
+
+    for cluster in clusters:
+        cluster["label"] = most_common_label(cluster["items"])
+        cluster["score"] = sum(source_weight(item["source"]) for item in cluster["items"])
+        cluster["representative"] = representative_question(cluster["items"], cluster["label"])
+        cluster["sources"] = sorted({item["source"] for item in cluster["items"]})
+        cluster["examples"] = [item.get("company", "") for item in cluster["items"] if item.get("company")][:3]
+    clusters.sort(key=lambda cluster: (cluster["score"], len(cluster["items"])), reverse=True)
+    return clusters
 
 
 def question_focus_words(question, label):
@@ -301,15 +462,58 @@ def personalized_question_templates(target_job, structured_profile):
     return questions
 
 
-def common_questions_for_job(target_job, results, structured_profile=None, limit=5):
+def common_questions_for_job(target_job, results, structured_profile=None, company_questions="", custom_questions=None, limit=5):
     job_name = target_job or "지원 직무"
     label_examples = defaultdict(list)
     label_counts = Counter()
+    candidates = []
+
+    for question in custom_questions or []:
+        question = normalize_space(question)
+        if question:
+            candidates.append({"question": question, "source": "custom"})
+
+    if custom_questions:
+        clusters = cluster_question_candidates(candidates)
+        return [
+            (cluster["representative"], max(cluster["score"], 1), cluster["examples"])
+            for cluster in clusters[:limit]
+        ]
+
+    for question in split_question_items(company_questions):
+        candidates.append({"question": question, "source": "company"})
+
     for _, document in results:
         label = question_label(document.get("question_text") or document.get("question_label") or "")
         label_counts[label] += 1
         if len(label_examples[label]) < 3 and document.get("company"):
             label_examples[label].append(document["company"])
+        if document.get("question_text"):
+            candidates.append(
+                {
+                    "question": document["question_text"],
+                    "source": "retrieved",
+                    "company": document.get("company", ""),
+                }
+            )
+
+    for label, question in personalized_question_templates(job_name, structured_profile or {}):
+        candidates.append({"question": question, "source": "template", "label": label})
+
+    clusters = cluster_question_candidates(candidates)
+    if clusters:
+        questions = []
+        used_labels = set()
+        for cluster in clusters:
+            label = cluster["label"]
+            if label in used_labels and len(questions) >= 3:
+                continue
+            used_labels.add(label)
+            examples = cluster["examples"] or label_examples[label]
+            questions.append((cluster["representative"], max(label_counts[label], cluster["score"], 1), examples))
+            if len(questions) >= limit:
+                break
+        return questions
 
     questions = []
     for label, question in personalized_question_templates(job_name, structured_profile or {})[:limit]:
@@ -381,8 +585,149 @@ def evidence_by_field(items):
     return {label: values for label, values in grouped.items() if values}
 
 
-def field_summary_sentence(field_summary):
-    return f"제 경험은 다음과 같이 정리할 수 있습니다. {field_summary}."
+def evidence_context_sentence(evidence_items):
+    texts = [item["text"].rstrip(".") for item in evidence_items if item.get("text")]
+    if not texts:
+        return ""
+    sentences = []
+    for index, text in enumerate(texts):
+        prefix = "저는 " if index == 0 and not text.startswith("저는 ") else "또한 "
+        if text.endswith(("했습니다", "수행했습니다", "되었습니다", "분석했습니다", "수정했습니다", "구현했습니다")):
+            sentences.append(f"{prefix}{text}.")
+        else:
+            sentences.append(f"{prefix}{text}을 중심으로 문제를 분석했습니다.")
+    sentences.append("이 과정에서 활동명을 나열하는 데 그치지 않고, 왜 그 방법이 필요한지와 결과를 어떻게 확인할지 함께 고민했습니다.")
+    return " ".join(sentences)
+
+
+def evidence_texts_by_field(evidence_items):
+    grouped = defaultdict(list)
+    for item in evidence_items:
+        grouped[item.get("field", "")].append(item.get("text", "").rstrip("."))
+    return grouped
+
+
+def experience_phrase(text):
+    text = normalize_space(text).rstrip(".")
+    replacements = [
+        (r"했습니다$", "한 경험"),
+        (r"수행했습니다$", "수행한 경험"),
+        (r"정리했습니다$", "정리한 경험"),
+        (r"분석했습니다$", "분석한 경험"),
+        (r"구현했습니다$", "구현한 경험"),
+        (r"수정했습니다$", "수정한 경험"),
+        (r"바꿨습니다$", "바꾼 경험"),
+        (r"만들었습니다$", "만든 경험"),
+        (r"맡았습니다$", "맡은 경험"),
+        (r"활용했습니다$", "활용한 경험"),
+    ]
+    for pattern, replacement in replacements:
+        next_text = re.sub(pattern, replacement, text)
+        if next_text != text:
+            return next_text
+    return text
+
+
+def experience_noun(text):
+    text = experience_phrase(text)
+    if not text:
+        return ""
+    if text.endswith("경험"):
+        return text
+    return f"{text} 경험"
+
+
+def job_role_name(target_job):
+    job_name = target_job or "지원 직무"
+    if job_name.endswith(("담당자", "엔지니어", "디자이너", "마케터", "간호사", "승무원")):
+        return job_name
+    return f"{job_name} 담당자"
+
+
+def spec_focus_label(item):
+    text = item.get("text", "")
+    if item.get("field") == "team_projects":
+        return f"핵심 활동인 {experience_noun(text)}"
+    if item.get("field") == "other_specs":
+        return f"이를 발전시킨 보조 경험인 {experience_noun(text)}"
+    if item.get("field") == "certificates":
+        return f"실무 기준을 보완한 {experience_noun(text)}"
+    if item.get("field") == "major":
+        return f"기초 관점을 만든 {experience_noun(text)}"
+    return experience_noun(text)
+
+
+def selected_specs_phrase(evidence_items):
+    labels = [spec_focus_label(item) for item in evidence_items[:2] if item.get("text")]
+    if not labels:
+        return ""
+    if len(labels) == 1:
+        return labels[0]
+    return f"{labels[0]}{josa(labels[0], '과', '와')} {labels[1]}"
+
+
+def build_experience_scene(evidence_items, label, target_job):
+    grouped = evidence_texts_by_field(evidence_items)
+    team = experience_phrase((grouped.get("team_projects") or [""])[0])
+    supports = (grouped.get("other_specs") or [])[:2]
+    certs = (grouped.get("certificates") or [])[:1]
+    major = (grouped.get("major") or [])[:1]
+    job_name = target_job or "지원 직무"
+    terms = job_domain_terms(job_name)
+    selected_phrase = selected_specs_phrase(evidence_items)
+    support_sentence = ""
+    if supports:
+        support_sentence = f" 이 과정에서 {', '.join(experience_noun(text) for text in supports)}도 함께 다루며 판단 근거를 더 구체화했습니다."
+    elif certs and label in {"직무역량", "입사 후 포부", "지원동기"}:
+        support_sentence = f" {certs[0]}은 이 경험을 실무 기준으로 정리하는 보조 근거가 되었습니다."
+    elif major and label in {"지원동기", "성장과정"}:
+        support_sentence = f" {major[0]}은 이 관심을 직무 관점으로 확장하는 기반이 되었습니다."
+
+    if team:
+        if label == "협업/소통":
+            return (
+                f"이 답변에서는 {selected_phrase}{josa(selected_phrase, '을', '를')} 중심 근거로 삼았습니다."
+                f" 저는 이 활동을 단순한 팀 참여 기록으로 두지 않고, 역할을 나누고 진행 상황을 맞추며 하나의 결과물로 연결하는 경험으로 발전시켰습니다."
+                f"{support_sentence} 그 과정에서 배운 점은 협업의 핵심이 각자 맡은 일을 끝내는 데 그치지 않고, 서로의 작업이 이어지는 기준을 계속 맞추는 일이라는 것입니다."
+            )
+        if label == "직무역량":
+            return (
+                f"이 답변에서는 {selected_phrase}{josa(selected_phrase, '을', '를')} 직무역량의 근거로 선택했습니다."
+                f" 이 활동에서 저는 경험을 단순한 과제 수행으로 두지 않고, {terms['process']}으로 발전시켰습니다."
+                f"{support_sentence} 그래서 {job_name}{josa(job_name, '에서', '에서')}도 먼저 시장과 업무 조건을 나누어 보고, 실행 우선순위를 설명하는 방식으로 일할 수 있다고 생각합니다."
+            )
+        if label == "경험/성과":
+            return (
+                f"{job_name}{josa(job_name, '과', '와')} 연결해 설명할 경험으로 {selected_phrase}{josa(selected_phrase, '을', '를')} 골랐습니다."
+                f" 저는 이 경험에서 제 역할이 결과물의 어느 부분에 기여하는지 확인하면서 활동을 더 구체화했고, 중간 결과를 기준으로 부족한 부분을 다시 보완했습니다."
+                f"{support_sentence} 이를 통해 성과는 활동명을 많이 적는 것이 아니라, 선택한 방식과 확인한 결과를 함께 설명할 때 설득력이 생긴다는 점을 배웠습니다."
+            )
+        if label == "도전/문제해결":
+            return (
+                f"문제를 해결한 경험으로는 {selected_phrase}{josa(selected_phrase, '을', '를')} 들 수 있습니다."
+                f" 처음부터 답을 정해 놓기보다 상황을 나누어 보고, 원인을 확인할 수 있는 순서대로 접근하면서 활동을 문제해결 경험으로 발전시켰습니다."
+                f"{support_sentence} 이 과정에서 배운 점은 문제 해결이 한 번의 시도로 끝나는 것이 아니라 가설을 세우고 확인하며 수정하는 과정이라는 점입니다."
+            )
+        return (
+            f"제 경험 중 {job_name}와 가장 직접적으로 연결되는 근거로 {selected_phrase}{josa(selected_phrase, '을', '를')} 선택했습니다."
+            f" 이 활동을 통해 관심을 실제 행동으로 옮기고, 결과를 확인하며 다음 개선점을 찾는 방식으로 경험을 발전시켰습니다."
+            f"{support_sentence}"
+        )
+
+    fallback_texts = [text for values in grouped.values() for text in values]
+    if not fallback_texts:
+        return ""
+    return (
+        f"이 답변에서는 {', '.join(fallback_texts[:2])}을 근거로 삼았습니다."
+        f" 다만 단순한 보유 스펙으로 나열하기보다 {job_name}{josa(job_name, '에서', '에서')} 필요한 실행 방식과 연결해 설명하겠습니다."
+    )
+
+
+def reference_style_sentence(reference_examples, label):
+    examples = reference_examples or []
+    if not examples:
+        return ""
+    return ""
 
 
 def job_domain_terms(target_job):
@@ -394,6 +739,8 @@ def job_domain_terms(target_job):
             "environment": "브랜드와 채널 운영 기준",
             "future": "고객 반응을 실행 전략으로 바꾸는 실무자",
             "result": "타깃 이해와 성과 지표",
+            "capability": "고객과 시장을 나누어 보고 반응의 이유를 설명하는 힘",
+            "process": "타깃, 채널, 메시지, 반응 지표를 함께 비교하는 과정",
         }
     if any(keyword in lowered for keyword in ["개발", "백엔드", "프론트", "ai", "데이터", "엔지니어", "서버", "api"]):
         return {
@@ -402,6 +749,28 @@ def job_domain_terms(target_job):
             "environment": "개발 환경과 업무 기준",
             "future": "기술을 문제 해결로 연결하는 실무자",
             "result": "구현 결과와 검증 기준",
+            "capability": "문제를 구조화하고 구현 결과를 검증하는 힘",
+            "process": "요구사항, 데이터 흐름, 예외 상황, 결과 확인 기준을 나누어 보는 과정",
+        }
+    if any(keyword in lowered for keyword in ["해외", "글로벌", "무역", "수출", "수입", "사업 운영", "사업운영", "사업개발"]):
+        return {
+            "problem": "국가별 시장 조건과 운영상의 제약",
+            "tool": "시장조사와 유통 구조 분석 경험",
+            "environment": "해외 시장과 파트너 커뮤니케이션 기준",
+            "future": "시장 정보를 실행 가능한 운영 판단으로 바꾸는 실무자",
+            "result": "국가별 비교 기준과 실행 우선순위",
+            "capability": "시장, 유통 채널, 소비자 가격을 비교해 운영 판단으로 정리하는 힘",
+            "process": "국가별 유통 구조, 가격대, 소비자 특성, 진입 조건을 나누어 비교하는 과정",
+        }
+    if any(keyword in lowered for keyword in ["행정", "복지", "공공", "교육"]):
+        return {
+            "problem": "이용자의 요구와 운영 기준",
+            "tool": "절차 정리와 안내 개선 경험",
+            "environment": "규정과 현장 요청이 함께 있는 업무 흐름",
+            "future": "기준을 신뢰할 수 있게 설명하는 실무자",
+            "result": "요청 유형과 처리 기준",
+            "capability": "요청을 유형별로 나누고 가능한 범위를 분명히 설명하는 힘",
+            "process": "요청 배경, 적용 기준, 예외 가능성, 안내 방식을 나누어 정리하는 과정",
         }
     return {
         "problem": "업무 상황과 사용자의 요구",
@@ -409,6 +778,8 @@ def job_domain_terms(target_job):
         "environment": "업무 흐름과 조직 기준",
         "future": "경험을 실제 성과로 연결하는 실무자",
         "result": "실행 과정과 결과",
+        "capability": "업무 상황을 기준으로 나누고 실행 가능한 판단으로 정리하는 힘",
+        "process": "목적, 조건, 자료, 실행 순서를 나누어 확인하는 과정",
     }
 
 
@@ -439,7 +810,7 @@ def expand_to_min_chars(text, label, target_job, target_company, min_chars=1100,
     if label == "직무역량":
         additions.insert(
             1,
-            "직무 역량은 한 번의 활동으로 완성되는 것이 아니라 여러 경험을 통해 반복적으로 다듬어진다고 생각합니다. 그래서 저는 학습한 기술을 기록하고, 직접 적용해 본 뒤, 결과가 기대와 다를 때 어떤 부분을 보완해야 하는지 확인하는 방식으로 역량을 쌓아 왔습니다.",
+            f"직무 역량은 한 번의 활동으로 완성되는 것이 아니라 여러 경험을 통해 반복적으로 다듬어진다고 생각합니다. 그래서 저는 제가 한 활동을 기록하고, {job_name}{josa(job_name, '에서', '에서')} 필요한 기준으로 다시 정리하며, 다음 판단에 활용할 수 있는 방식으로 역량을 쌓아 왔습니다.",
         )
     expanded = text
     for addition in additions:
@@ -457,27 +828,22 @@ def expand_to_min_chars(text, label, target_job, target_company, min_chars=1100,
     return trim_to_char_range(trimmed, 1000, max_chars)
 
 
-def build_missing_evidence_draft(question, label, target_job):
+def build_missing_evidence_message(question, label, target_job):
     rule = QUESTION_EVIDENCE_RULES.get(label, {})
     job_name = target_job or "지원 직무"
-    base = "\n".join(
+    return "\n".join(
         [
-            f"이 문항은 '{question}'에 직접 답해야 하므로, 현재 입력된 스펙만으로는 완성형 자기소개서를 만들기 어렵습니다.",
+            "이 문항은 아직 자기소개서 초안으로 만들지 않았습니다.",
+            f"질문: {question}",
             rule.get("fallback", "문항에 맞는 구체 경험을 한 가지 더 입력해야 합니다."),
-            f"특히 {job_name}{josa(job_name, '과', '와')} 연결되는 답변은 단순히 보유 스펙을 나열하는 방식보다 실제 행동과 결과를 보여줄 때 설득력이 생깁니다.",
-            "예를 들어 팀 문항이라면 팀원과 역할을 어떻게 나누었는지, 의견이 달랐을 때 어떤 기준으로 조율했는지, 최종 결과에서 본인이 담당한 부분이 무엇이었는지를 써야 합니다.",
-            "프로젝트 성과 문항이라면 사용한 기술명만 쓰는 것이 아니라 문제 정의, 구현 과정, 검증 방식, 개선 결과가 함께 들어가야 합니다.",
-            "자격증이나 학과는 기본 역량을 설명하는 보조 근거로 쓰고, 팀프로젝트 작업은 협업과 성과를 보여주는 핵심 근거로 분리해서 쓰는 편이 좋습니다. 기타 스펙은 직무와 직접 연결되는 기술, 수업, 인턴, 공모전, 수상, 도구 사용 경험처럼 답변의 맥락을 보강할 때 사용합니다.",
-            "따라서 답변을 보완할 때는 모든 스펙을 한 문장에 뭉뚱그리지 말고, 문항이 요구하는 근거를 먼저 고른 뒤 그 근거에 맞는 경험만 선택해야 합니다. 협업 문항에는 자격증보다 팀프로젝트에서 역할을 조율한 장면이 필요하고, 직무역량 문항에는 학과와 자격증만 나열하기보다 실제로 기술을 적용한 과정이 함께 들어가야 합니다.",
-            "면접까지 이어서 준비하려면 이 문항에서 사용한 경험을 60초 안에 말할 수 있어야 합니다. 그래서 초안에는 상황, 맡은 역할, 직접 한 행동, 결과, 직무 연결이 모두 보여야 하고, 면접에서는 그중 본인이 직접 한 행동과 판단 기준을 더 자세히 설명할 수 있어야 합니다.",
-            f"추가할 때는 상황, 맡은 역할, 직접 한 행동, 결과, {job_name}{josa(job_name, '과의', '와의')} 연결 순서로 적어주세요.",
+            f"{job_name}{josa(job_name, '과', '와')} 연결되는 프로젝트, 실습, 인턴, 구현 경험 중 하나를 입력하면 그 경험을 중심으로 다시 생성합니다.",
         ]
     )
-    return trim_to_char_range(base, 1000, 1500)
 
 
 def join_three_paragraphs(paragraphs, label, target_job, target_company):
     job_name = target_job or "지원 직무"
+    role_name = job_role_name(target_job)
     company_name = target_company or "지원 회사"
     terms = job_domain_terms(job_name)
     additions = {
@@ -487,7 +853,7 @@ def join_three_paragraphs(paragraphs, label, target_job, target_company):
         ),
         "직무역량": (
             1,
-            " 특히 결과가 기대와 다를 때 원인을 한 번에 단정하지 않고 입력, 처리 과정, 결과 확인 단계로 나누어 살피려 했습니다. 이 방식은 기술을 단순히 사용하는 수준을 넘어 문제를 설명하고 개선하는 역량으로 이어졌습니다.",
+            f" 특히 이 경험을 {job_name}{josa(job_name, '과', '와')} 연결해 다시 정리하면서, 단순히 활동을 수행했다는 사실보다 어떤 기준으로 비교했고 어떤 판단으로 이어졌는지가 더 중요하다는 점을 배웠습니다.",
         ),
         "협업/소통": (
             1,
@@ -495,7 +861,7 @@ def join_three_paragraphs(paragraphs, label, target_job, target_company):
         ),
         "입사 후 포부": (
             2,
-            f" 장기적으로는 {job_name}{josa(job_name, '로서', '로서')} {terms['future']}가 되고 싶습니다. {company_name}의 업무 안에서도 결과를 만든 뒤 근거와 개선점을 남기는 방식으로 팀의 다음 실행에 기여하겠습니다.",
+            f" 장기적으로는 {role_name}{josa(role_name, '으로서', '로서')} {terms['future']}가 되고 싶습니다. {company_name}의 업무 안에서도 결과를 만든 뒤 근거와 개선점을 남기는 방식으로 팀의 다음 실행에 기여하겠습니다.",
         ),
         "경험/성과": (
             2,
@@ -525,43 +891,41 @@ def join_three_paragraphs(paragraphs, label, target_job, target_company):
 
 def build_answer_paragraph(question, label, evidence_items, signals, target_company, target_job, reference_examples=None):
     job_name = target_job or "지원 직무"
+    role_name = job_role_name(target_job)
     company_name = target_company or "지원 회사"
     terms = job_domain_terms(job_name)
-    evidence = build_evidence_sentence(evidence_items)
     signal_text = ", ".join(signals[:3])
-    field_lines = []
-    for field_label, values in evidence_by_field(evidence_items).items():
-        field_lines.append(f"{field_label}에서는 {'; '.join(values)}")
-    field_summary = " / ".join(field_lines) if field_lines else evidence
+    evidence_sentence = build_experience_scene(evidence_items, label, target_job) or evidence_context_sentence(evidence_items)
+    reference_sentence = reference_style_sentence(reference_examples, label)
     if label == "지원동기":
         paragraphs = [
-            f"{company_name}에 지원한 이유는 {job_name}{josa(job_name, '이라는', '라는')} 직무가 제가 쌓아 온 경험을 {terms['problem']} 해결로 연결할 수 있는 자리라고 판단했기 때문입니다. 저는 관심의 출발점보다 그 관심을 어떻게 실행으로 옮겼는지를 중요하게 생각합니다.",
-            f"{field_summary_sentence(field_summary)} 이를 바탕으로 {job_name}{josa(job_name, '에', '에')} 필요한 문제 정의와 실행 방식을 익혀 왔습니다. 특히 {terms['tool']}{josa(terms['tool'], '을', '를')} 단순히 알고 있는 데서 멈추지 않고, 필요한 자료를 찾고 적용 가능한 방법을 비교하며 결과를 확인하는 과정을 반복했습니다.",
+            f"{company_name}에 지원한 이유는 {job_name}{josa(job_name, '이라는', '라는')} 직무가 제가 다뤄 온 경험을 {terms['problem']} 해결로 확장할 수 있는 자리라고 판단했기 때문입니다. 저는 관심을 말로 설명하는 것보다 그 관심을 실제 작업으로 옮긴 과정을 중요하게 생각합니다.",
+            f"{reference_sentence} {evidence_sentence} 이를 바탕으로 {job_name}{josa(job_name, '에', '에')} 필요한 문제 정의와 실행 방식을 익혀 왔습니다. 특히 {terms['tool']}{josa(terms['tool'], '을', '를')} 단순히 알고 있는 데서 멈추지 않고, 필요한 자료를 찾고 적용 가능한 방법을 비교하며 결과를 확인하는 과정을 반복했습니다.",
             f"이 경험을 통해 제가 {job_name}{josa(job_name, '에서', '에서')} 기여할 수 있는 지점은 경험을 말로 설명하는 데서 끝내지 않고 {terms['result']}{josa(terms['result'], '으로', '로')} 연결하는 태도라고 생각합니다. {company_name}에서도 업무의 배경을 먼저 파악하고, 제가 가진 {signal_text} 역량을 바탕으로 신뢰할 수 있는 결과를 만들겠습니다.",
         ]
     elif label == "직무역량":
         paragraphs = [
-            f"{job_name} 수행에 필요한 핵심 역량은 문제를 구조화하는 힘, 필요한 방법을 선택하는 판단력, 그리고 결과를 끝까지 확인하는 실행력이라고 생각합니다. 그래서 저는 보유 스펙을 나열하기보다 실제로 어떻게 적용했는지를 중심으로 제 역량을 설명하고자 합니다.",
-            f"{field_summary_sentence(field_summary)} 이 과정에서는 활동명이나 도구명을 사용하는 데서 끝나지 않고, 어떤 문제를 해결하기 위해 그 방법이 필요한지 먼저 정리했습니다. 결과가 기대와 다를 때도 원인을 한 번에 단정하지 않고 상황, 실행 과정, 결과 확인 단계로 나누어 살폈습니다.",
-            f"이러한 경험은 {job_name}{josa(job_name, '에서', '에서')} 요구되는 실무 태도와 연결됩니다. 실무에서는 정답이 정해진 과제보다 조건과 제약을 해석해야 하는 상황이 많기 때문입니다. 저는 앞으로도 학습한 내용을 실제 업무에 적용하고, 동료가 이해할 수 있는 방식으로 정리하며, {terms['result']}{josa(terms['result'], '을', '를')} 기준으로 개선하는 {job_name}가 되겠습니다.",
+            f"이 문항에서 보여주고 싶은 역량은 {terms['capability']}입니다. {job_name}{josa(job_name, '에서는', '에서는')} 단순히 경험을 많이 했다는 사실보다, 그 경험을 업무 판단에 필요한 기준으로 정리할 수 있는지가 중요하다고 생각합니다.",
+            f"{reference_sentence} {evidence_sentence} 이 과정에서는 활동명을 나열하는 데서 멈추지 않고, {terms['process']}으로 경험을 다시 정리했습니다. 특히 어떤 자료를 먼저 보고, 어떤 기준으로 비교해야 실제 업무에 도움이 되는지 고민했습니다.",
+            f"이러한 경험은 {job_name}{josa(job_name, '에서', '에서')} 요구되는 실무 태도와 연결됩니다. 실무에서는 정답이 정해진 과제보다 시장, 고객, 조직, 일정처럼 여러 조건을 함께 해석해야 하는 상황이 많기 때문입니다. 저는 앞으로도 경험을 단순한 이력으로 두지 않고, {terms['result']}{josa(terms['result'], '을', '를')} 설명할 수 있는 {role_name}가 되겠습니다.",
         ]
     elif label == "경험/성과":
         paragraphs = [
-            f"{job_name}와 연결되는 경험에서는 활동 자체보다 맡은 역할과 실행 과정을 먼저 드러내는 것이 중요하다고 생각합니다. {field_summary_sentence(field_summary)}",
-            f"이 경험에서 저는 맡은 역할을 기준으로 해야 할 일을 나누고, 결과가 막연한 느낌으로 끝나지 않도록 중간 산출물을 확인했습니다. 부족한 부분은 다시 자료를 찾아 보완했고, 필요한 기술과 작업 순서를 연결하면서 제가 담당한 부분이 최종 결과물 안에서 어떤 역할을 하는지 계속 확인했습니다.",
+            f"{job_name}{josa(job_name, '과', '와')} 연결되는 경험에서는 활동 자체보다 맡은 역할과 실행 과정을 먼저 드러내는 것이 중요하다고 생각합니다. {reference_sentence} {evidence_sentence}",
+            f"이 경험에서 저는 맡은 역할을 기준으로 해야 할 일을 나누고, 결과가 막연한 느낌으로 끝나지 않도록 중간 산출물을 확인했습니다. 부족한 부분은 다시 자료를 찾아 보완했고, {terms['process']}을 기준으로 제가 담당한 부분이 최종 결과물 안에서 어떤 역할을 하는지 계속 확인했습니다.",
             f"이 과정에서 얻은 성과는 단순히 활동을 완료했다는 점이 아니라 {signal_text} 역량을 실제 행동으로 확인했다는 점입니다. 앞으로 {job_name}{josa(job_name, '에서도', '에서도')} 같은 방식으로 문제를 정의하고, 맡은 역할을 분명히 수행하며, 결과로 설명할 수 있는 경험을 계속 만들겠습니다.",
         ]
     elif label == "협업/소통":
         paragraphs = [
             "팀을 이뤄 협업하면서 성과를 만들기 위해서는 각자가 맡은 일을 잘하는 것뿐 아니라 서로의 작업이 하나의 결과로 이어지도록 맞추는 과정이 중요하다고 생각합니다. 이 문항에서는 개인 스펙보다 팀 안에서 맡은 역할과 조율 과정을 중심으로 말씀드리겠습니다.",
-            f"{field_summary_sentence(field_summary)} 이 과정에서 제 역할을 먼저 분명히 하고, 팀원과 역할을 나눈 뒤 진행 상황을 공유하며 작업했습니다. 의견이 다르거나 일정이 어긋날 때는 논의 내용을 막연히 넘기지 않고 기준을 정리해 다시 확인했습니다.",
+            f"{reference_sentence} {evidence_sentence} 이 과정에서 제 역할을 먼저 분명히 하고, 팀원과 역할을 나눈 뒤 진행 상황을 공유하며 작업했습니다. 의견이 다르거나 일정이 어긋날 때는 논의 내용을 막연히 넘기지 않고 기준을 정리해 다시 확인했습니다.",
             f"그 결과 각자의 작업이 따로 흩어지지 않고 최종 결과물 안에서 자연스럽게 연결될 수 있었습니다. 이 경험을 통해 협업은 단순히 함께 일하는 것이 아니라 공동 목표를 기준으로 역할, 일정, 결과물을 계속 조율하는 과정이라는 점을 배웠습니다. {job_name}{josa(job_name, '에서도', '에서도')} 동료와 맥락을 공유하며 팀 성과에 기여하겠습니다.",
         ]
     else:
         paragraphs = [
             f"입사 후에는 {job_name}의 업무 흐름을 빠르게 익히고, 제가 쌓아 온 경험을 실제 성과로 연결하고 싶습니다. 막연한 성장 의지보다 초기 실행과 장기 기여 방향을 나누어 설명하는 것이 더 설득력 있다고 생각합니다.",
-            f"{field_summary_sentence(field_summary)} 이 과정에서 배운 것은 새로운 업무를 맡았을 때 먼저 목적을 이해하고, 필요한 자료와 실행 방법을 연결한 뒤 결과를 확인하는 방식입니다. 초기에는 {company_name}의 {terms['environment']}{josa(terms['environment'], '을', '를')} 정확히 익히고, 주어진 과제를 안정적으로 수행하는 데 집중하겠습니다.",
-            f"이후에는 반복되는 문제나 개선 가능한 지점을 기록하고, 동료와 공유할 수 있는 형태로 정리해 팀의 생산성에 기여하고 싶습니다. 장기적으로는 {job_name}{josa(job_name, '로서', '로서')} {terms['future']}가 되겠습니다.",
+            f"{reference_sentence} {evidence_sentence} 이 과정에서 배운 것은 새로운 업무를 맡았을 때 먼저 목적을 이해하고, 필요한 자료와 실행 방법을 연결한 뒤 결과를 확인하는 방식입니다. 초기에는 {company_name}의 {terms['environment']}{josa(terms['environment'], '을', '를')} 정확히 익히고, 주어진 과제를 안정적으로 수행하는 데 집중하겠습니다.",
+            f"이후에는 반복되는 문제나 개선 가능한 지점을 기록하고, 동료와 공유할 수 있는 형태로 정리해 팀의 생산성에 기여하고 싶습니다. 장기적으로는 {role_name}{josa(role_name, '으로서', '로서')} {terms['future']}가 되겠습니다.",
         ]
     return join_three_paragraphs(paragraphs, label, target_job, target_company)
 
@@ -577,26 +941,46 @@ def build_cover_letter_drafts(questions, structured_profile, target_company, tar
         draft = (
             build_answer_paragraph(question, label, evidence_items, signals, target_company, target_job, (reference_guides or {}).get(label, []))
             if evidence_items
-            else build_missing_evidence_draft(question, label, target_job)
+            else build_missing_evidence_message(question, label, target_job)
         )
         drafts.append(
             {
                 "index": index,
                 "question": question,
                 "label": label,
+                "draft_type": "cover_letter" if evidence_items else "needs_input",
                 "evidence_status": evidence_status,
                 "evidence_items": evidence_items,
+                "applied_evidence": [
+                    f"{item.get('field_label', '스펙')}: {item.get('text', '')}"
+                    for item in evidence_items
+                    if item.get("text")
+                ],
                 "source_count": count,
                 "example_companies": companies,
                 "reference_examples": (reference_guides or {}).get(label, []),
                 "draft": draft,
                 "draft_chars": len(draft),
-                "target_chars": "1000-1500",
-                "edit_notes": [
-                    "문항에 없는 스펙은 억지로 넣지 않습니다.",
-                    "팀/협업 문항은 팀프로젝트 작업만 우선 사용합니다.",
-                    "자격증은 직무역량/포부 보조 근거로만 사용합니다.",
+                "target_chars": "1000-1500" if evidence_items else "입력 보완 후 생성",
+                "missing_information": []
+                if evidence_items
+                else [
+                    f"상황, 맡은 역할, 직접 한 행동, 결과, {target_job or '지원 직무'}와의 연결",
                 ],
+                "missing_input_prompt": "" if evidence_items else f"상황, 맡은 역할, 직접 한 행동, 결과, {target_job or '지원 직무'}와의 연결을 한 가지 경험으로 입력해 주세요.",
+                "edit_notes": (
+                    [
+                        "문항에 없는 스펙은 억지로 넣지 않습니다.",
+                        "문항별로 가장 맞는 스펙 2개만 골라 직무 연결과 배운 점으로 풀어 씁니다.",
+                        "팀/협업 문항은 팀프로젝트 작업만 우선 사용합니다.",
+                        "자격증은 직무역량/포부 보조 근거로만 사용합니다.",
+                    ]
+                    if evidence_items
+                    else [
+                        "현재는 초안을 생성하지 않고 입력 보완 상태로 표시합니다.",
+                        "LLM API에도 이 문항을 보내지 않아 없는 경험을 만들지 않습니다.",
+                    ]
+                ),
             }
         )
     return drafts

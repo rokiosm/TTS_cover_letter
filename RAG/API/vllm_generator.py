@@ -3,7 +3,7 @@ import re
 
 from dotenv import load_dotenv
 
-from RAG.API.openai_generator import build_prompt, draft_payload, parse_json_output
+from RAG.API.openai_generator import apply_replacement_metadata, build_prompt, draft_payload, parse_json_output
 
 
 DEFAULT_MODEL = "Qwen/Qwen3-14B"
@@ -72,6 +72,7 @@ def regenerate_with_vllm(serialized, generation_options):
         item["local_draft"] = item.get("draft", "")
         item["draft"] = draft
         item["draft_chars"] = len(draft)
+        apply_replacement_metadata(item, replacement)
         item["vllm_generated"] = True
         item["vllm_paragraphs"] = draft.count("\n\n") + 1 if draft else 0
 

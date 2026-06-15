@@ -54,3 +54,7 @@ Embedding/persona_context_results.csv
 # Local app databases
 DB/*.sqlite3
 DB/*.sqlite3-*
+DB/aihub_interview_labels/
+
+# Local ranking artifacts
+RAG/question_answer_ranker.json

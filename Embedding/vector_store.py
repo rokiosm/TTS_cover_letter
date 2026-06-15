@@ -9,6 +9,8 @@ import sqlite3
 from collections import Counter
 from pathlib import Path
 
+from RAG.question_answer_ranker import answer_embedding_text
+
 
 ROOT = Path(__file__).resolve().parents[1]
 QUESTION_CSV = ROOT / "Embedding" / "question_contexts.csv"
@@ -184,7 +186,7 @@ def rebuild_store(
                 inserted["sentence"] += 1
 
         if "context" in units:
-            context = row.get("context_600") or " ".join([row.get("question_text", ""), row.get("answer", "")])
+            context = answer_embedding_text(row)
             insert_item(connection, row, "context", 0, context, dimensions, backend)
             inserted["context"] += 1
 

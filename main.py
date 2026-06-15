@@ -7,6 +7,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from RAG.env_utils import load_env_file
+
 
 HOST = "0.0.0.0"
 PORT = 8000
@@ -57,6 +59,11 @@ def get_documents():
     return DOCUMENTS
 
 
+def refresh_documents():
+    global DOCUMENTS
+    DOCUMENTS = None
+
+
 def read_frontend_file(filename):
     return (FRONTEND_DIR / filename).read_bytes()
 
@@ -64,6 +71,8 @@ def read_frontend_file(filename):
 def resolve_frontend_file(path):
     if path == "/":
         requested = FRONTEND_DIR / "index.html"
+    elif path.startswith("/history/") and path.removeprefix("/history/").isdigit():
+        requested = FRONTEND_DIR / "pages" / "history-detail.html"
     else:
         requested = FRONTEND_DIR / path.lstrip("/")
     resolved = requested.resolve()
@@ -82,15 +91,20 @@ def content_type_for(path):
 
 
 def default_generation_options(payload):
+    load_env_file()
     generation_options = payload.get("generation", {})
     if generation_options:
         return generation_options
-    if not os.getenv("GEMINI_API_KEY"):
+    has_openai = bool(os.getenv("OPENAI_API_KEY"))
+    has_gemini = bool(os.getenv("GEMINI_API_KEY"))
+    if not has_openai and not has_gemini:
         return {}
     return {
-        "provider": "gemini",
-        "use_gemini": True,
-        "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        "provider": "auto",
+        "use_openai": has_openai,
+        "use_gemini": has_gemini,
+        "openai_model": os.getenv("OPENAI_MODEL", "gpt-5.2"),
+        "gemini_model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         "temperature": float(os.getenv("GEMINI_TEMPERATURE", "0.2")),
         "max_tokens": int(os.getenv("GEMINI_MAX_TOKENS", "8192")),
         "output_style": "자기소개서 문체",
@@ -107,7 +121,58 @@ def redact_generation_options(generation_options):
     if sanitized.get("api_key"):
         sanitized["api_key"] = ""
         sanitized["api_key_provided"] = True
+    if sanitized.get("openai_api_key"):
+        sanitized["openai_api_key"] = ""
+        sanitized["openai_api_key_provided"] = True
+    if sanitized.get("gemini_api_key"):
+        sanitized["gemini_api_key"] = ""
+        sanitized["gemini_api_key_provided"] = True
     return sanitized
+
+
+def apply_generation(serialized, generation_options):
+    if not generation_options:
+        serialized["generation_provider"] = "local_rag"
+        return serialized
+
+    provider = generation_options.get("provider", "auto")
+    should_try_openai = provider in {"auto", "openai"} or generation_options.get("use_openai")
+    should_try_gemini = provider in {"auto", "gemini"} or generation_options.get("use_gemini")
+
+    if should_try_openai:
+        try:
+            from RAG.API.openai_generator import regenerate_with_openai
+
+            serialized = regenerate_with_openai(serialized, generation_options)
+            openai_status = serialized.get("openai", {})
+            if openai_status.get("success_count", 0) > 0:
+                return serialized
+        except Exception as exc:
+            serialized["openai"] = {
+                "enabled": False,
+                "success_count": 0,
+                "fallback_to_next": True,
+                "fallback_reason": f"OpenAI 생성 실패: {str(exc)[:220]}",
+            }
+
+    if should_try_gemini:
+        try:
+            from RAG.API.gemini_generator import regenerate_with_gemini
+
+            serialized = regenerate_with_gemini(serialized, generation_options)
+            if serialized.get("gemini", {}).get("success_count", 0) > 0:
+                return serialized
+        except Exception as exc:
+            serialized["gemini"] = {
+                "enabled": False,
+                "success_count": 0,
+                "fallback_to_local": True,
+                "fallback_reason": f"Gemini 생성 실패: {str(exc)[:220]}",
+            }
+
+    serialized["generation_provider"] = "local_rag"
+    serialized["generation_fallback_chain"] = ["openai", "gemini", "local_rag"]
+    return serialized
 
 
 def redact_payload(payload):
@@ -157,6 +222,16 @@ class RagHandler(BaseHTTPRequestHandler):
             from DB import history_store
 
             json_response(self, 200, {"items": history_store.list_history()})
+            log_event(f"GET {path} completed in {time.perf_counter() - started_at:.3f}s")
+            return
+        if path.startswith("/api/history/") and path.removeprefix("/api/history/").isdigit():
+            from DB import history_store
+
+            item = history_store.get_history(path.removeprefix("/api/history/"))
+            if not item:
+                json_response(self, 404, {"error": "history_not_found"})
+            else:
+                json_response(self, 200, {"item": item})
             log_event(f"GET {path} completed in {time.perf_counter() - started_at:.3f}s")
             return
         json_response(self, 404, {"error": "not_found"})
@@ -217,15 +292,27 @@ class RagHandler(BaseHTTPRequestHandler):
             target_job=payload.get("target_job", ""),
             user_profile=payload.get("user_profile", ""),
             structured_profile=payload.get("structured_profile", {}),
+            company_questions=payload.get("company_questions", ""),
+            custom_questions=payload.get("custom_questions", []),
             documents=get_documents(),
         )
         serialized = rag.serialize_rag_output(output)
         serialized["generation_request"] = redact_generation_options(generation_options)
         serialized["api_input"] = redact_payload(payload)
-        if generation_options.get("provider") == "gemini" or generation_options.get("use_gemini"):
-            from RAG.API.gemini_generator import regenerate_with_gemini
+        serialized = apply_generation(serialized, generation_options)
+        try:
+            from RAG.local_learning import save_generated_drafts
 
-            serialized = regenerate_with_gemini(serialized, generation_options)
+            provider = serialized.get("generation_provider") or "local_rag"
+            save_generated_drafts(serialized, provider)
+            refresh_documents()
+        except Exception as exc:
+            serialized["local_learning"] = {
+                "enabled": False,
+                "saved_count": 0,
+                "saved_ids": [],
+                "error": str(exc)[:220],
+            }
         json_response(self, 200, serialized)
         log_event(f"POST {path} completed in {time.perf_counter() - started_at:.3f}s")
 
